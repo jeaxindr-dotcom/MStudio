@@ -42,7 +42,8 @@ write(path.join(RUNTIME, 'player', 'remotion.tsx'), "import {compositions} from 
 let source = baseline ? execFileSync('git', ['show', '10633a9:lib/player-build.mjs'], { cwd: STUDIO, encoding: 'utf8' }) : fs.readFileSync(path.join(STUDIO, 'lib', 'player-build.mjs'), 'utf8');
 source = source.replace("const STUDIO = path.resolve(HERE, '..');", `const STUDIO = ${JSON.stringify(RUNTIME)};`)
   .replace("'./place.mjs'", JSON.stringify(pathToFileURL(path.join(STUDIO, 'lib', 'place.mjs')).href))
-  .replace("'./i18n.mjs'", JSON.stringify(pathToFileURL(path.join(STUDIO, 'lib', 'i18n.mjs')).href));
+  .replace("'./i18n.mjs'", JSON.stringify(pathToFileURL(path.join(STUDIO, 'lib', 'i18n.mjs')).href))
+  .replace("'./require-context.mjs'", JSON.stringify(pathToFileURL(path.join(STUDIO, 'lib', 'require-context.mjs')).href));
 const modulePath = path.join(SCR, 'constructeur.mjs'); write(modulePath, source);
 const { playerBuilder } = await import(pathToFileURL(modulePath).href);
 let notifications = 0;
