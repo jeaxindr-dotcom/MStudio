@@ -134,7 +134,12 @@
       get stage() { return M.hello?.stage ? stage : undefined; },
       frame: () => M.frame, isPlaying: () => M.playing, isBuffering: () => M.buffering, frameReady: () => M.ready, frameLoading: () => M.loading, crashed: () => M.crashed,
       seek: (f) => { M.frame = Math.max(0, Math.min((M.hello?.durationInFrames ?? 1) - 1, Math.round(f))); send('seek', f); },
-      play: () => { M.playing = true; return call('play').catch((error) => { M.playing = false; throw error; }); }, pause: () => { M.playing = false; send('pause'); },
+      play: () => { M.playing = true; return call('play').catch((error) => { M.playing = false; throw error; }); }, pause: () => {
+        // the preview frozen (a heavy scene mounting): the pause is queued behind the freeze; the frame on screen when it was
+        // asked is where it stops, not where its clock ran meanwhile (user request 03/11/2026: « je ne peux pas l'interrompre »)
+        const f = M.frame, frozen = performance.now() - lastSeen > 250;
+        M.playing = false; send('pause'); if (frozen) send('seek', f);
+      },
       setRate: (r) => send('setRate', r), setVolume: (v) => send('setVolume', v), mute: () => send('mute'), unmute: () => send('unmute'),
       restoreSound: () => call('restoreSound').catch(() => null),   // (« Rétablir le son », player/sound.ts; true: unmuted)
       sleep: (on) => send('sleep', on), recover: (f) => { M.crashed = false; send('recover', f); }, __crash: () => send('__crash'),

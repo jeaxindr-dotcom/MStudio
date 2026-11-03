@@ -16,6 +16,7 @@ import { createReady } from './ready';
 import { createCrash } from './crash';
 import { createSound, SoundContext } from './sound';
 import { AssetsWait } from './assets-wait';
+import { guardStalls } from './stall';
 // @ts-ignore resolved by lib/player-build.mjs: player/three-stage.ts when the project has @react-three/fiber, else player/no3d.ts
 import { create3d } from '@coulisses-3d';
 // @ts-ignore resolved through esbuild's alias
@@ -109,8 +110,8 @@ const Framed: React.FC<any> = (p) => React.createElement('div', { id: 'coulisses
   seek: (f: number) => { const next = Math.max(0, Math.min(durationInFrames - 1, Math.round(f))); if (suspended) suspendedFrame = next; else ref?.seekTo(next); },
   play: () => ref?.play(), pause: () => ref?.pause(), isPlaying: () => !!ref?.isPlaying(),
   isBuffering: () => !!(ref as (PlayerRef & { isBuffering?: () => boolean }) | null)?.isBuffering?.(),
-  unload: async () => { ref?.pause(); suspendedFrame = ref?.getCurrentFrame() ?? suspendedFrame; suspended = true; flushSync(() => root.render(null)); ref = null; R.setBuffering(false); return suspendedFrame; },
-  resume: async (f?: number) => { suspended = false; flushSync(() => C.recover(f ?? suspendedFrame)); await settle(); return ref?.getCurrentFrame(); },
+  unload: async () => { ref?.pause(); suspendedFrame = ref?.getCurrentFrame() ?? suspendedFrame; suspended = true; flushSync(() => root.render(null)); ref = null; R.suspend(); return suspendedFrame; },
+  resume: async (f?: number) => { suspended = false; flushSync(() => C.recover(f ?? suspendedFrame)); R.watch(); await settle(); return ref?.getCurrentFrame(); },
   dispose: () => { ref?.pause(); S.dispose(); R.dispose(); root.unmount(); ref = null; },
   frame: () => suspended ? suspendedFrame : ref?.getCurrentFrame() ?? 0,
   frameReady: () => !suspended && R.ready(), frameLoading: () => R.isLoading(), whenFrameReady: () => R.when(),
@@ -159,6 +160,7 @@ const App: React.FC = () => {
           .then(() => settle()).then(() => { stage.applyNow(); return settle(); }).then(() => { (window as any).__stageShotReady = true; });
       } catch (e) { console.error('stage', e); (window as any).__stageShotReady = true; }
     }
+    offs.push(guardStalls(() => ref, (info) => emit('stall', info), { fps: FPS, rate: () => rate }));   // (player/stall.ts: a freeze is never skipped)
     emit('ready'); R.watch();
     return () => offs.forEach((o) => o());
   }, []);

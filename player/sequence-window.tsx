@@ -108,6 +108,13 @@ const Windowed = forwardRef<any, any>(function WindowedSequence(props, ref) {
   return <Real {...props} ref={ref} />;
 });
 // Pas de prémontage ajouté à toutes les scènes : le projet choisit ses frontières.
+// Mais une scène QUITTÉE reste montée, cachée et figée, KEEP_S secondes (postmountFor de Remotion, aperçu seulement :
+// le rendu n'utilise pas ce lecteur). Revenir en arrière sur un plan lourd ne le reprépare plus (03/11/2026, 宇宙ちゃん
+// long07 : chaque gros plan quitté était démonté, et le revoir refigeait l'aperçu 6 s). Un postmountFor du projet prime.
+export const KEEP_S = 45;
 export const Sequence = forwardRef<any, any>(function Sequence(props, ref) {
-  return props.layout === 'none' ? <Windowed {...props} ref={ref} /> : <Real {...props} ref={ref} />;
+  const { fps } = (R as any).useVideoConfig();
+  if (props.layout === 'none') return <Windowed {...props} ref={ref} />;
+  if (props.loop || props.postmountFor !== undefined || !Number.isFinite(props.durationInFrames)) return <Real {...props} ref={ref} />;
+  return <Real {...props} postmountFor={Math.round((fps || 30) * KEEP_S)} ref={ref} />;
 });

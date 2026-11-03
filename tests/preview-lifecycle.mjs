@@ -188,6 +188,13 @@ await test('31/10 : une attente sans propriétaire jamais rendue ne masque plus 
   assert.equal(result, 'succès'); assert.equal(c.events.some(e => e.type === 'ready-error'), false, 'aucun « aperçu planté »');
   c.ready.dispose?.();
 });
+await test('03/11 : l’aperçu mis en sommeil (« Préparer 30 s ») ne déclare jamais « préparation expirée (root) »', async () => {
+  const c = disponibilite(); c.ready.watch(); c.ready.setBuffering(true);
+  c.ready.suspend(); c.clock.advance(31000); await Promise.resolve();
+  assert.equal(c.events.some(e => e.type === 'ready-error'), false, 'aucun faux plantage pendant le sommeil');
+  c.ready.watch(); c.clock.advance(100); await Promise.resolve();
+  assert.equal(c.ready.ready(), true, 'au réveil, la surveillance reprend'); c.ready.dispose?.();
+});
 await test('G11 : toutes les racines retrouvent leur boucle après un réveil sur une autre scène', () => {
   const text = source('player/r3f.ts');
   const part = text.slice(text.indexOf('const shownCanvas'), text.indexOf('export const isAsleep')).replaceAll('export ', '');

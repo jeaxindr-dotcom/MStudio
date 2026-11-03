@@ -219,6 +219,24 @@ try {
   const back = { ...(await p.eval(`return { on: document.querySelector('#codeCrash').classList.contains('on'), crashed: !!window.__preview.crashed() }`)),
     ...(await p.frameEval('player.html', `return { canvas: !!document.querySelector('canvas'), fallback: /⚠/.test(document.getElementById('root').innerText) }`)) };
   check(!back.on && !back.crashed && back.canvas && !back.fallback, `the next move: the Player mounted again, the scene drawn (no « ⚠ » left) ${JSON.stringify(back)}`);
+  // a heavy scene mounting FREEZES the preview while it plays (03/11/2026, 宇宙ちゃん long07: 6 s, then 2758 → 2944): it goes
+  // on from the frame it froze at, nothing skipped; and a pause asked during a freeze stops on the frame that was shown
+  {
+    await p.eval(`window.__preview.seek(300); return 1`); await sleep(1500);
+    await p.eval(`window.__preview.play(); return 1`); await sleep(1500);
+    const before = await p.eval('return window.__preview.frame()');
+    await p.frameEval('player.html', `setTimeout(() => { const t = performance.now(); while (performance.now() - t < 2500) {} }, 0); return 1`);
+    await sleep(3200);
+    const after = await p.eval('return window.__preview.frame()');
+    check(after - before < 45, `a freeze of 2.5 s while playing: the playback goes on where it froze (${before} → ${after}, no 75 frames skipped)`);
+    await p.frameEval('player.html', `setTimeout(() => { const t = performance.now(); while (performance.now() - t < 2500) {} }, 0); return 1`);
+    await sleep(400);
+    const shown = await p.eval('return window.__preview.frame()');
+    await p.eval(`window.__preview.pause(); return 1`);
+    await sleep(3500);
+    const stopped = await p.eval('return { f: window.__preview.frame(), playing: window.__preview.isPlaying() }');
+    check(!stopped.playing && Math.abs(stopped.f - shown) <= 3, `a pause asked during a freeze: stopped on the frame shown (${shown} → ${JSON.stringify(stopped)})`);
+  }
   // the preview FROZEN (user report 31/10/2026, Lesson 1: « L'aperçu ne répond plus depuis 30 secondes », and « Réessayer »
   // did nothing — the new preview was prepared behind the frozen one, in the same renderer process, frozen with it)
   const fBefore = await p.eval('return __studio.state().frame');

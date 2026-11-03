@@ -22,7 +22,7 @@ const check = (c, w) => { c ? ok++ : ko++; console.log(`  ${c ? '✓' : '✗'} $
 process.env.COULISSES_LANG = 'fr'; process.env.COULISSES_PREMOUNT = '1.5';
 
 // one studio on the sample, its s02 loading in `slow` ms; a playback from 0 sampled every 50 ms in the preview
-async function run(slow) {
+async function run(slow, steps = null) {
   fs.rmSync(SCR, { recursive: true, force: true }); fs.mkdirSync(SCR, { recursive: true });
   fs.writeFileSync(path.join(SCR, 'settings.json'), JSON.stringify({ lang: 'fr' }));
   makeFixture({ slowScene: slow, premount: 45, master: true });
@@ -43,6 +43,7 @@ const p = await launch({ port: 9381, autoplay: 'tab' });
     if (!(await until(`window.__studio && __studio.state().mode === 'code' && window.__preview?.durationInFrames > 1`, 120000))) { console.log('   (studio :', out.split(String.fromCharCode(10)).filter(Boolean).slice(-4).join(' | ').slice(0, 600), '| page :', JSON.stringify(p.logs.filter((l) => /error|erreur|Error/i.test(l)).slice(-4)).slice(0, 900), ')'); return null; }
     await sleep(2500);
     const s = await shown();
+    if (steps) return await steps({ p, ev, s, until });
     await ev('window.__preview.seek(0); return 1'); await sleep(1200);
     await p.frameEval(s, `window.__smp = []; const t0 = performance.now(); window.__tk = setInterval(() => { const P = window.StudioPlayer; window.__smp.push({ t: Math.round(performance.now() - t0), f: P.frame(), scene: !!document.querySelector('[data-coulisses="titre s02"]') }); }, 50); return 1`);
     await click('#bPlay');
@@ -69,6 +70,21 @@ try {
     check(stall(B, 2, 85) < 300, `the scene before never waits for the next one's premount (stood still at most ${stall(B, 2, 85)} ms in s01)`);
     check(blackB === 0 && B.at(-1).f > 120, `then the wait at s02's start (${stall(B, 86, 95)} ms there), never black (${blackB}), on to frame ${B.at(-1).f}`);
   } else check(false, 'the second playback sampled');
+  // a scene LEFT stays mounted (player/sequence-window.tsx KEEP_S, 03/11/2026: « quand je fais demi-tour pour voir ce que
+  // j'ai loupé, ça bug encore »): back into s02 after s03, its scene is there at once, not prepared again (2.5 s)
+  console.log('retour en arrière sur s02 (2,5 s de préparation) après s03');
+  const back = await run(2500, async ({ p, ev, s, until }) => {
+    const has = () => p.frameEval(s, `return !!document.querySelector('[data-coulisses="titre s02"]')`);
+    await ev('window.__preview.seek(150); return 1');
+    for (let i = 0; i < 60 && !(await has()); i++) await sleep(250);
+    const first = await has();
+    await ev('window.__preview.seek(260); return 1'); await sleep(1500);
+    await ev('window.__preview.seek(150); return 1');
+    const t0 = Date.now(); let ms = null;
+    for (let i = 0; i < 80; i++) { if (await p.frameEval(s, `const e = document.querySelector('[data-coulisses="titre s02"]'); return !!e && getComputedStyle(e.closest('div')).opacity !== '0' && window.StudioPlayer.frame() === 150`)) { ms = Date.now() - t0; break; } await sleep(50); }
+    return { first, ms };
+  });
+  check(!!back?.first && back.ms !== null && back.ms < 1200, `back into a scene already seen: there at once (${back?.ms} ms, not 2.5 s again)`);
 } catch (e) { ko++; console.log('  ✗ ERREUR', e.stack); }
 console.log(`\n${ok} ok, ${ko} ko`);
 process.exit(ko ? 1 : 0);

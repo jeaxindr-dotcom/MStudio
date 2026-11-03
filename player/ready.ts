@@ -8,7 +8,7 @@ export function createReady(opts: {
   timeoutMs?: number;
   staleMs?: number;
 }) {
-  let buffering = false, loading = false, raf = 0, timer: any = 0, started = 0, reported = '', disposed = false;
+  let buffering = false, loading = false, raf = 0, timer: any = 0, started = 0, reported = '', disposed = false, asleep = false;
   const timeout = opts.timeoutMs ?? 30000;
   // Une attente globale (delayRender sans propriétaire) jamais rendue par son producteur (ex. Stage.tsx démonté
   // avant la fin de son chargement) ne doit pas masquer l'image pour toujours : au-delà de staleMs elle est tenue
@@ -65,7 +65,7 @@ export function createReady(opts: {
     opts.emit('ready-error', { reason, error: { message: failure(reason, expired).message, where: 'préparation de l’image', stack: '' } });
   };
   const tick = () => {
-    raf = 0; timer = 0; if (disposed) return;
+    raf = 0; timer = 0; if (disposed || asleep) return;
     const current = status(), pending = current.state !== 'ready', elapsed = performance.now() - started;
     if (pending && !loading) { loading = true; opts.emit('loading'); }
     if (!pending && loading) { loading = false; reported = ''; opts.emit('loaded'); }
@@ -78,7 +78,7 @@ export function createReady(opts: {
   };
   const watch = () => {
     if (disposed) return;
-    started = performance.now(); reported = '';
+    asleep = false; started = performance.now(); reported = '';
     if (!raf && !timer) raf = requestAnimationFrame(tick);
   };
   const waiters = new Set<{ res: () => void; rej: (e: Error) => void; t: number; armed: boolean }>();
@@ -95,10 +95,13 @@ export function createReady(opts: {
     }
     if (waiters.size) pollTimer = setTimeout(poll, 50);
   };
-  const onResources = () => { if (!raf && !timer && !disposed) raf = requestAnimationFrame(tick); };
+  const onResources = () => { if (!raf && !timer && !disposed && !asleep) raf = requestAnimationFrame(tick); };
   window.addEventListener('coulisses-readiness', onResources);
   return {
     watch,
+    // L'aperçu mis en sommeil (unload : « Préparer 30 s ») n'a plus de scène : rien à surveiller, aucune
+    // « préparation expirée (root) » au bout de 30 s (03/11/2026, 宇宙ちゃん long07 : deux faux plantages à l'image 0).
+    suspend: () => { asleep = true; buffering = false; reported = ''; cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; loading = false; },
     setBuffering: (value: boolean) => { buffering = value; watch(); },
     isLoading: () => loading,
     ready: () => status().state === 'ready',
