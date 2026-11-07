@@ -102,20 +102,27 @@ try {
   assert.ok(await p.eval('return !__preview.isPlaying() && document.querySelector("#v").paused && !!document.querySelector(".code-next")'));
   passe('Déplacement et clics Lecture puis Rétablir pendant la préparation, ancien lecteur arrêté');
   const cible = await p.eval('return document.querySelector(".code-next").src');
-  await p.eval(`window.preparations = []; window.departs = []; const candidate = document.querySelector('.code-next').contentWindow;
+  await p.eval(`window.preparations = []; window.departs = []; window.tamponApresEchange = [];
+    const candidate = document.querySelector('.code-next').contentWindow;
     window.addEventListener('message', e => {
       if (e.source !== candidate) return;
       if (e.data.value?.ready === true) preparations.push(e.data.value.frame);
       if (e.data.ev?.type === 'play') departs.push(e.data.ev.frame);
+      if (e.data.ev?.frame === 90 && ['waiting', 'resume'].includes(e.data.ev.type)) tamponApresEchange.push(e.data.ev.type);
     });
     liberer()`);
   await p.until('document.querySelector("#code").src !== ' + JSON.stringify(ancien), 30000);
-  await attendreSon();
+  await p.until('/rétabli/i.test(document.querySelector("#save").textContent)', 12000);
+  // La nouvelle iframe part à 52 puis charge réellement la scène à 90. Une
+  // mesure à cheval sur ce tampon trouverait, à raison, le contexte suspendu.
+  await p.until('tamponApresEchange.includes("resume")', 8000);
+  assert.deepEqual(await p.eval('return tamponApresEchange.slice(0, 2)'), ['waiting', 'resume']);
+  await preuve();
   assert.equal(await adresse(), cible);
   assert.equal(await p.eval('return preparations.at(-1)'), 52);
   assert.equal(await p.eval('return departs[0]'), 52);
   assert.equal(await p.eval('return document.querySelectorAll(\'iframe[src*="player.html"]\').length'), 1);
-  passe('Adoption à l’image 52 et son vérifié sur la Lecture mise en attente');
+  passe('Adoption à l’image 52, Lecture conservée et son vérifié après le tampon suivant');
   await arret(40);
 
   // Si la sortie reste morte dans l'aperçu neuf, aucun « rétabli », ni
