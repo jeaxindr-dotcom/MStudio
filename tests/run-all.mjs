@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { waitForRenderIdle } from '../lib/render-activity.mjs';
-import { freePort } from './where.mjs';
+import { engineCopyFlags, freePort } from './where.mjs';
 
 const STUDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? String(process.argv[i + 1] ?? '').split(',').filter(Boolean) : null; };
@@ -22,7 +22,7 @@ fs.writeFileSync(ENV.COULISSES_SETTINGS, JSON.stringify({ mediasAutoSort: false 
 // Point de départ de la recherche d'un port libre pour le studio du bac.
 const BOX_PORT = +(process.env.COULISSES_TEST_SANDBOX_PORT ?? 4240) || 4240;
 if (BOX_PORT < 4240 || BOX_PORT > 65535) throw new Error('Le port du bac de test doit être compris entre 4240 et 65535.');
-const SANDBOX = path.join(STUDIO, 'sandbox', '07_Episodes'), RENDER_BOX = path.join(STUDIO, '.cache', 'sandbox-test', '07_Episodes');
+const SANDBOX = path.resolve(process.env.STUDIO_SANDBOX ?? path.join(STUDIO, 'sandbox', '07_Episodes')), RENDER_BOX = path.join(STUDIO, '.cache', 'sandbox-test', '07_Episodes');
 const RENDER_SOURCE = path.join(SANDBOX, 'E03 - The Secret Garden', 'E03 - The Secret Garden.mp4');
 // [suite, besoin] : self crée ses serveurs ; sandbox utilise E03 ; render utilise sa copie.
 const SUITES = [
@@ -40,7 +40,7 @@ const SUITES = [
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));   // COULISSES_TEST_SLOW=2: a slower PC
 const kill = (c) => { if (c?.pid) try { execFileSync('taskkill', ['/PID', String(c.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* gone */ } };
 async function studioOn(episodes, port, log) {
-  const c = spawn(process.execPath, [path.join(STUDIO, 'studio-server.mjs'), 'E03', '--no-open', '--episodes', episodes, '--port', String(port)], { cwd: STUDIO, env: ENV, stdio: ['ignore', 'pipe', 'pipe'] });
+  const c = spawn(process.execPath, [path.join(STUDIO, 'studio-server.mjs'), 'E03', '--no-open', '--episodes', episodes, ...engineCopyFlags(), '--port', String(port)], { cwd: STUDIO, env: ENV, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { out += d; });
   for (let i = 0; i < 240 && !/Ouvre : http/.test(out); i++) await sleep(250);
   fs.writeFileSync(path.join(SCR, log), out);
@@ -76,7 +76,7 @@ try {
     if (need === 'sandbox') {
       if (!fs.existsSync(path.join(SANDBOX, 'E03 - The Secret Garden'))) { results.push({ name, ok: 0, ko: 0, skipped: true, s: 0, failed: [] }); continue; }
       box ??= await studioOn(SANDBOX, await freePort(BOX_PORT), 'sandbox-server.log');
-      env = { STUDIO_PORT: String(box.port) };
+      env = { STUDIO_PORT: String(box.port), STUDIO_SANDBOX: SANDBOX };
     }
     if (need === 'render') {
       if (!fs.existsSync(path.join(RENDER_BOX, 'E03 - The Secret Garden'))) { results.push({ name, ok: 0, ko: 0, skipped: true, s: 0, failed: [] }); continue; }

@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { launch, requireFrench, requireSandbox } from './cdp.mjs';
 import { CACHE } from '../lib/place.mjs';
+import { engineCopyFlags, freePort } from './where.mjs';
 import { removeTestNotes, closeTestLots, E2E_TEXTS, SANDBOX_TEXTS } from './sandbox-clean.mjs';
 
 process.env.COULISSES_LANG = 'fr';   // the suite checks the French texts (lib/i18n.mjs): the CLI below, and the studio started by hand
@@ -17,7 +18,7 @@ const PORT = +(process.env.STUDIO_PORT ?? 4174);
 const EP = path.join(SANDBOX, 'E03 - The Secret Garden'), REVUE = path.join(EP, 'revue');
 const URL = `http://localhost:${PORT}/`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));   // COULISSES_TEST_SLOW=2: a slower PC
-const cli = (...a) => execFileSync('node', [path.join(STUDIO, 'studio-cli.mjs'), ...a.slice(0, 1), 'E03', ...a.slice(1), '--episodes', SANDBOX], { encoding: 'utf8' }).trim();
+const cli = (...a) => execFileSync('node', [path.join(STUDIO, 'studio-cli.mjs'), ...a.slice(0, 1), 'E03', ...a.slice(1), '--episodes', SANDBOX, ...engineCopyFlags()], { encoding: 'utf8' }).trim();
 const shots = path.join(CACHE, 'shots'); fs.mkdirSync(shots, { recursive: true });
 let ok = 0, ko = 0;
 const check = (cond, what) => { if (cond) { ok++; console.log(`  ✓ ${what}`); } else { ko++; console.log(`  ✗ ${what}`); } };
@@ -26,7 +27,7 @@ const check = (cond, what) => { if (cond) { ok++; console.log(`  ✓ ${what}`); 
 const TEST_TEXTS = E2E_TEXTS;   // (tests/sandbox-clean.mjs: the texts of every suite of the sandbox)
 await requireFrench(URL); await requireSandbox(URL, SANDBOX);   // (never a real episode's studio)
 closeTestLots(REVUE, cli, SANDBOX_TEXTS); await removeTestNotes(PORT, SANDBOX_TEXTS);   // (what every suite of the sandbox left: each starts clean)
-const p = await launch();
+const p = await launch({ port: await freePort(9333) });
 try {
   await p.goto(URL);
   await p.until(`document.querySelector('#v').readyState >= 2`);
@@ -279,6 +280,8 @@ try {
   const pv = await p.eval('return __studio.state().frame');
   const wantN = cuts.find((x) => x > 9050), wantP = [...cuts].reverse().find((x) => x < wantN);
   check(nx === wantN && pv === wantP, `↓ from frame 9050: exactly on the next cut (${nx}); ↑: on the cut before (${pv})`);
+} catch (e) {
+  ko++; console.error(e.stack ?? e);
 } finally {
   const errs = p.logs.filter((l) => /exception|\[error\]/.test(l) && !/WebGL|X4000/.test(l));
   if (errs.length) console.log('page errors:\n' + errs.slice(0, 5).join('\n'));

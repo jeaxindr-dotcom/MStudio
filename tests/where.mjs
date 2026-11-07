@@ -16,6 +16,10 @@ const YT = path.join(HOME, 'Desktop', 'Youtube');
 const BRAMBLE = path.join(YT, 'music', 'Brambleshire', 'Théatre');
 const UCHU = path.join(YT, '宇宙', 'relance');
 
+// Le studio et les CLI de ses suites E03 doivent viser le même moteur de test.
+export const engineCopyFlags = () => process.env.COULISSES_TEST_ENGINE_COPY
+  ? ['--remotion', path.resolve(process.env.COULISSES_TEST_ENGINE_COPY)] : [];
+
 // a Remotion project whose node_modules has everything the fixtures need
 const NEEDED = ['remotion', '@remotion/player', '@remotion/cli', 'react', 'react-dom'];
 export function remotionModules() {

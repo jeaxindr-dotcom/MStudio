@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { launch, requireFrench, requireSandbox } from './cdp.mjs';
 import { CACHE } from '../lib/place.mjs';
 import { waitForRenderIdle } from '../lib/render-activity.mjs';
+import { engineCopyFlags, freePort } from './where.mjs';
 import { removeTestNotes, closeTestLots, AGENT_TEXTS, SANDBOX_TEXTS } from './sandbox-clean.mjs';
 
 process.env.COULISSES_LANG = 'fr';   // the suite checks the French texts (lib/i18n.mjs): the CLI below, and the studio started by hand
@@ -18,20 +19,22 @@ const PORT = +(process.env.STUDIO_PORT ?? 4174);
 const REVUE = path.join(SANDBOX, 'E03 - The Secret Garden', 'revue');
 const CLI = path.join(STUDIO, 'studio-cli.mjs');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));   // COULISSES_TEST_SLOW=2: a slower PC
-const cli = (...a) => execFileSync('node', [CLI, a[0], 'E03', ...a.slice(1), '--episodes', SANDBOX], { encoding: 'utf8' }).trim();
+const episodeFlags = ['--episodes', SANDBOX, ...engineCopyFlags()];
+const cli = (...a) => execFileSync('node', [CLI, a[0], 'E03', ...a.slice(1), ...episodeFlags], { encoding: 'utf8' }).trim();
 let ok = 0, ko = 0;
 const check = (c, w) => { c ? ok++ : ko++; console.log(`  ${c ? '✓' : '✗'} ${w}`); };
 
 // what earlier runs of the sandbox tests left behind (their own notes and open batches only: tests/sandbox-clean.mjs)
 const TEST_TEXTS = AGENT_TEXTS;   // (tests/sandbox-clean.mjs: the texts of every suite of the sandbox)
 await requireFrench(`http://localhost:${PORT}/`); await requireSandbox(`http://localhost:${PORT}/`, SANDBOX);   // (never a real episode's studio)
-closeTestLots(REVUE, cli, SANDBOX_TEXTS);   // (the batches the other suites of the sandbox left open too: `wait` would take the first one) await removeTestNotes(PORT, SANDBOX_TEXTS);
+closeTestLots(REVUE, cli, SANDBOX_TEXTS);
+await removeTestNotes(PORT, SANDBOX_TEXTS);
 
 // 1) the session starts watching
-const w = spawn('node', [CLI, 'wait', 'E03', '--episodes', SANDBOX], { stdio: ['ignore', 'pipe', 'pipe'] });
+const w = spawn('node', [CLI, 'wait', 'E03', ...episodeFlags], { stdio: ['ignore', 'pipe', 'pipe'] });
 let out = ''; w.stdout.on('data', (d) => { out += d; });
 const exited = new Promise((r) => w.on('close', r));
-const p = await launch();
+const p = await launch({ port: await freePort(9333) });
 const entry = path.join(STUDIO, 'player', 'entry.tsx');
 let entryBefore = null, entryChanged = null;
 try {
@@ -89,6 +92,8 @@ try {
   const v1 = await p.eval(`return document.querySelector('#codeStatus').textContent`);
   check(v1 !== v0, `preview rebuilt and reloaded (${v0} → ${v1})`);
   check((await p.eval('return __studio.state().frame')) === 3000, 'still on the same frame after the reload');
+} catch (e) {
+  ko++; console.error(e.stack ?? e);
 } finally {
   if (entryBefore !== null && fs.readFileSync(entry, 'utf8') === entryChanged) fs.writeFileSync(entry, entryBefore);
   w.kill(); await p.close();

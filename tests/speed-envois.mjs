@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { launch } from './cdp.mjs';
+import { launch, requireSandbox } from './cdp.mjs';
+import { freePort } from './where.mjs';
+import { waitForRenderIdle } from '../lib/render-activity.mjs';
 
 const STUDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCR = path.join(STUDIO, '.cache', 'speed-envois-test');
@@ -17,12 +19,13 @@ process.env.STUDIO_PROJECTS = path.join(SCR, 'projets.json');
 process.env.COULISSES_SETTINGS = path.join(SCR, 'settings.json');
 process.env.COULISSES_MEDIAS = path.join(SCR, 'medias');
 const { importProject } = await import('../lib/projects.mjs');
-const PORT = 4189, U = `http://127.0.0.1:${PORT}`;
+const PORT = await freePort(4240);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));
 let ok = 0, ko = 0;
 const check = (c, w) => { c ? ok++ : ko++; console.log(`  ${c ? '✓' : '✗'} ${w}`); };
 const dur = (f) => +execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f], { encoding: 'utf8' }).trim();
 const VIDEO = path.join(SCR, 'Film', 'Film.mp4');
+await waitForRenderIdle();
 execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30:duration=8', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=8', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', VIDEO]);
 const t = new Date(Date.now() - 60000); fs.utimesSync(VIDEO, t, t);   // older than 20 s: the reviewed video
 
@@ -33,8 +36,11 @@ try {
   st = spawn(process.execPath, [path.join(STUDIO, 'studio-server.mjs'), '--project', imp.revue, '--no-open', '--port', String(PORT)], { cwd: STUDIO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; st.stdout.on('data', (d) => { out += d; }); st.stderr.on('data', (d) => { out += d; });
   for (let i = 0; i < 160 && !/Ouvre : http/.test(out); i++) await sleep(250);
-  if (!/Ouvre : http/.test(out)) throw new Error('le studio ne démarre pas : ' + out.slice(-300));
-  p = await launch({ port: 9378 });
+  const opened = /Ouvre : (http:\/\/127\.0\.0\.1:(\d+))/.exec(out);
+  if (!opened || Number(opened[2]) < 4240) throw new Error('le studio de test ne démarre pas : ' + out.slice(-300));
+  const U = opened[1];
+  await requireSandbox(U + '/', imp.revue);
+  p = await launch({ port: await freePort(9378) });
   await p.size(1500, 950);
   await p.goto(U + '/');
   await p.until(`window.__studio && document.querySelector('#v').readyState >= 2`, 60000);
