@@ -44,7 +44,8 @@ import { project, tracksOf, shotsUsedIn } from './lib/projects.mjs';
 import { genericTimelineBuilder, normalizeTimeline } from './lib/remotion-module.mjs';
 import { hfPlayerBuilder, hfTimelineBuilder, hfFor, hfComposition, injectHead } from './lib/hyperframes.mjs';
 import { stripTypeScriptTypes } from 'node:module';
-import { checkUpdates, updatesLine, updatesOk, updatesMarkdown } from './lib/updates.mjs';
+import { Worker } from 'node:worker_threads';
+import { updatesLine, updatesOk, updatesMarkdown } from './lib/updates.mjs';
 import { docText, about, reveal, openOnline, logRing, coulissesOf } from './lib/menu.mjs';
 import { agentById, detectAgent } from './lib/agent.mjs';
 import { t, lang, langSource, setLang, LANGS, renderPage, writeSettings, readSettings } from './lib/i18n.mjs';
@@ -422,12 +423,51 @@ const inside = (root, rel) => { const f = path.resolve(root, '.' + path.sep + re
 process.on('uncaughtException', (e) => console.error(`  ${time()}  ${t('srv.ignored', { msg: e.message })}`));
 // the agent the batch goes to: the one watching the tool (studio-cli wait says who it is), else the one chosen in the
 // page (« Connecter à l'agent »); then what may need updating on its side (lib/updates.mjs), in at most 9 s
+function updatesAgent(chosen) {
+  const a = agentState();
+  return (a.watching && a.agent?.id ? agentById(a.agent.id) : null) ?? agentById(chosen) ?? detectAgent() ?? agentById('claude');
+}
+// Une seule écriture à la fois dans le cache de vérification du studio. Deux
+// envois simultanés au même agent partagent aussi la lecture de ses dossiers.
+const activeChecks = new Map();
+let updatesQueue = Promise.resolve();
+function requestUpdates(agent, fresh = false, language = lang()) {
+  const key = JSON.stringify([agent.id, fresh, language]);
+  if (activeChecks.has(key)) return activeChecks.get(key);
+  const job = updatesQueue.then(() => new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./lib/lot-updates-worker.mjs', import.meta.url), {
+      env: { ...process.env, COULISSES_LANG: language },
+      workerData: { project: { kind: P.kind, remotionDir: P.remotionDir }, agent, fresh },
+    });
+    worker.once('message', resolve);
+    worker.once('error', reject);
+    worker.once('exit', (code) => reject(new Error(`Vérification interrompue (${code}).`)));
+  })).finally(() => activeChecks.delete(key));
+  activeChecks.set(key, job);
+  updatesQueue = job.catch(() => {});
+  return job;
+}
 async function updatesFor(chosen, fresh = false) {
-  const a = agentState(), ag = (a.watching && a.agent?.id ? agentById(a.agent.id) : null) ?? agentById(chosen) ?? detectAgent() ?? agentById('claude');
+  const ag = updatesAgent(chosen);
   let updates = null;
-  try { updates = await Promise.race([checkUpdates(P, { agent: ag, fresh }), new Promise((r) => setTimeout(() => r(null), 9000))]); } catch (e) { log(t('srv.updFail', { msg: e.message })); }
+  try { updates = await Promise.race([requestUpdates(ag, fresh), new Promise((r) => setTimeout(() => r(null), 9000))]); } catch (e) { log(t('srv.updFail', { msg: e.message })); }
   if (updates) log(updatesLine(updates));
   return { agent: { id: ag.id, name: ag.name }, updates, line: updates ? updatesLine(updates) : t('upd.line.unavailable'), ok: updatesOk(updates) };
+}
+const checkingLots = new Set();
+function scheduleLotUpdates(lot) {
+  const id = lot?.captureState?.id;
+  if (!lot?.updatesPending || !id || checkingLots.has(id)) return;
+  checkingLots.add(id);
+  const agent = agentById(lot.agent.id);
+  requestUpdates(agent, false, lot.language).catch((err) => {
+    log(t('srv.updFail', {msg: err.message}));
+    return null;
+  }).then((updates) => saveLotUpdates(P, lot.lot, id, updates))
+    .catch((err) => log(err.message)).finally(() => checkingLots.delete(id));
+}
+function resumeLotUpdates() {
+  for (const n of lotNumbers(P)) scheduleLotUpdates(readLot(P, n));
 }
 process.on('unhandledRejection', (e) => console.error(`  ${time()}  ${t('srv.ignored', { msg: e?.message ?? e })}`));
 
@@ -787,9 +827,14 @@ const server = http.createServer(async (req, res) => {
     // ---- the pending edits -> a batch for Claude ----
     if (pn === '/api/send' && req.method === 'POST') {
       const b = JSON.parse((await body(req)).toString('utf8'));
-      const m = meta(), u = await updatesFor(b.agent);
-      const r = await oneLotAtATime(() => createLot(P, b, { fps: b.fps || m.fps, size: Array.isArray(b.size) ? b.size : m.size, log, updates: u.updates, agent: u.agent }));
-      return json(res, { ok: true, ...r, agent: agentState(), updates: u.line, updatesOk: u.ok });
+      const m = b.fps && Array.isArray(b.size) ? null : meta();
+      const a = updatesAgent(b.agent);
+      const r = await oneLotAtATime(() => createLot(P, b, { fps: b.fps || m.fps, size: Array.isArray(b.size) ? b.size : m.size, log, deferred: true, updatesPending: true, agent: {id: a.id, name: a.name} }));
+      const lot = readLot(P, r.lot), pending = !!lot?.updatesPending;
+      json(res, { ok: true, ...r, agent: agentState(), updates: pending ? t('upd.line.pending') : updatesLine(lot?.updates) || t('upd.line.unavailable'),
+        updatesOk: pending || updatesOk(lot?.updates), pendingUpdatesId: pending ? lot.captureState.id : null });
+      scheduleLotUpdates(lot);
+      return;
     }
     if (pn === '/api/updates') { const u = await updatesFor(url.searchParams.get('agent'), url.searchParams.has('fresh')); return json(res, { line: u.line, ok: u.ok, md: u.updates ? updatesMarkdown(u.updates, { cli: `node "${CLI_FILE}"`, target: P.target }).join('\n') : '', ...u.updates }); }
     // ---- « Exporter » a run of a Remotion pipeline: the project's script, started here, on the user's order ----
@@ -875,6 +920,7 @@ let port = +(args[args.indexOf('--port') + 1] || 0) || DEFAULT_PORT;
 // a taken port: the next one, up to 4199 (where lib/render.mjs looks for the studios of an episode)
 server.on('error', (e) => { if (e.code === 'EADDRINUSE' && port < 4199) { port++; server.listen(port, '127.0.0.1'); } else throw e; });
 server.on('listening', async () => {
+  resumeLotUpdates();
   const url = `http://127.0.0.1:${port}/`;   // the home screen's address too: one site for the browser (lib/guard.mjs)
   const dev = INSTALLED ? '' : t('srv.dev');
   console.log(B ? t('srv.titleEp', { ep, folder, dev }) : t('srv.titleProj', { title: P.title, dir: P.EP, dev }));

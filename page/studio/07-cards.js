@@ -3,14 +3,28 @@
 // so they share their names as the one inline script did; hence the two-space indent.
   // ---------- modal ----------
   let modalLine = '';
+  let modalUpdatesId = null;
+  function setModalUpdates(text, ok) {
+    const u = $('#mUpd'); u.textContent = text; u.className = 'upd' + (text ? ' on' : '') + (text && !ok ? ' todo' : '');
+  }
+  function syncModalUpdates() {
+    if (!modalUpdatesId) return;
+    const lot = STATUS.lots?.find((L) => L.captureState?.id === modalUpdatesId);
+    if (lot?.updatesLine && !lot.updatesPending) {
+      setModalUpdates(lot.updatesLine, lot.updatesOk);
+      modalUpdatesId = null;
+    }
+  }
   // updatesOk (from the server, lib/updates.mjs): the update line is calm only when everything is up to date
   // received: the agent watching the tool already has it — nothing to paste: the line is folded away (« Afficher la
   // ligne »), « Fermer » is the main button
-  function showModal(title, p1, line, p2, { updates = '', updatesOk = false, pick = false, received = false } = {}) {
+  function showModal(title, p1, line, p2, { updates = '', updatesOk = false, pendingUpdatesId = null, pick = false, received = false } = {}) {
     $('#mT').textContent = title; $('#mP1').textContent = p1; $('#mLine').textContent = line; $('#mP2').textContent = p2 || ''; modalLine = line;
     $('#modal').classList.toggle('received', received && !!line);
     $('#mClose').className = received ? 'primary' : 'soft'; $('#mCopy').className = received ? 'soft' : 'primary';
-    const u = $('#mUpd'); u.textContent = updates || ''; u.className = 'upd' + (updates ? ' on' : '') + (updates && !updatesOk ? ' todo' : '');
+    modalUpdatesId = pendingUpdatesId;
+    setModalUpdates(updates, updatesOk);
+    syncModalUpdates();
     $('#mAgent').classList.toggle('on', pick); markPick();
     $('#modal').style.display = 'flex'; (received ? $('#mClose') : $('#mCopy')).focus();
   }

@@ -32,7 +32,7 @@
       $('#qwords').value = ''; save();
       showModal(T('st.send.title', { lot: res.lot, n: res.count }),
         res.agent?.watching ? T('st.send.gotIt', { name: agentName() }) : T('st.send.paste', { name: agentName() }),
-        res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, received: !!res.agent?.watching });
+        res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId, received: !!res.agent?.watching });
       setTab('lots');
     } catch (e) { setSave(T('st.send.failed', { msg: e.message }), 'err'); }
     sending = false; renderAll();
@@ -55,7 +55,7 @@
       const res = r.ok ? await r.json() : null;
       if (!res?.ok) throw new Error(r.ok ? T('st.send.emptyAnswer') : await r.text());
       n.draft = false; n.lot = res.lot; n.sentAt = now(); HIST.back = []; HIST.fwd = []; HIST.last = null; persist();
-      if (!res.agent?.watching) showModal(T('st.ag.sentTitle', { lot: res.lot }), T('st.send.paste', { name: agentName() }), res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk });
+      if (!res.agent?.watching) showModal(T('st.ag.sentTitle', { lot: res.lot }), T('st.send.paste', { name: agentName() }), res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId });
       else setSave(T('st.ag.sent', { name: agentName() }), 'ok');
     } catch (e) {
       notes = notes.filter((x) => x.id !== n.id); persist(); ta.value = text;   // nothing sent: the words come back
