@@ -92,7 +92,8 @@ export async function launch({ port = 9333, headless = true, args = [], autoplay
   const frameSid = async (match) => {
     for (const sid of [...frames].reverse()) {
       const u = await send('Runtime.evaluate', { expression: 'location.href', returnByValue: true }, sid).catch(() => null);
-      if (String(u?.result?.value ?? '').includes(match)) return sid;
+      const href = String(u?.result?.value ?? '');
+      if (/^https?:\/\//.test(match) ? href === match : href.includes(match)) return sid;
     }
     return null;
   };

@@ -133,7 +133,7 @@ function makeSound() {
   const c = new win.AudioContext();
   const bind = (ctx) => sound.bindContext?.(ctx) ?? (() => {});
   bind(c); const detach = sound.attach(player);
-  return { sound, player, c, events, win, Native: AudioContextMock, bind, clock, detach, context, setShared: (ctx) => { currentShared = ctx; }, cleanupEffect: () => effectCleanup?.() };
+  return { sound, player, playerListeners, c, events, win, Native: AudioContextMock, bind, clock, detach, context, setShared: (ctx) => { currentShared = ctx; }, cleanupEffect: () => effectCleanup?.() };
 }
 {
   const s = makeSound();
@@ -141,6 +141,17 @@ function makeSound() {
   const other = new s.win.AudioContext(); other.state = 'suspended'; other.resume = () => Promise.resolve(); s.clock(12000);
   check(!s.events.some((e) => e.state === 'dead'), 'un contexte tiers suspendu ne condamne pas le Player sain');
   check(s.sound.contexts().length === 1, 'le diagnostic ne conserve que le contexte du Player lié');
+}
+{
+  // 03/11/2026 : « Rétablir le son » puis Lecture, aucun son — Remotion suspend son contexte pendant un tampon et ne le
+  // relance pas à la fin (hors _experimentalKeepAudioContextAlive) : Coulisses le relance dès la fin du tampon
+  const s = makeSound(); s.clock(3000);
+  s.player.buffering = true; s.c.state = 'suspended'; s.c.dispatch?.('statechange');
+  s.clock(1000);
+  s.player.buffering = false;
+  const go = s.playerListeners?.get('resume'); go?.();
+  s.clock(400);
+  check(!!go && s.c.state === 'running', `la fin d'un tampon relance le contexte que Remotion a suspendu (${s.c.state} après 400 ms)`);
 }
 {
   const s = makeSound(); s.c.state = 'closed'; s.clock(12000);
