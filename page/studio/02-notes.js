@@ -479,7 +479,6 @@
     if (changed) { persist(); HIST.last = JSON.stringify(notes); setSave(T('st.save.remapped'), 'ok'); }   // (not a step of the user's undo: Ctrl+Z would put the notes back on the old frames)
   }
   function onStatus() {
-    syncModalUpdates();
     rsStatus();   // (the review sound: 01-preview.js)
     followPlans();   // (a new version of the code or of the video: the notes on their moments)
     const a = STATUS.agent ?? {}, b = $('#agent');

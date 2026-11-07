@@ -45,7 +45,7 @@
   // ---------- note cards (Modifs = waiting to be sent ; Notes = the others) ----------
   // a plain Entrée (no Maj, Ctrl, Alt), not the one that confirms the characters of a Japanese or Chinese input
   function enterKey(e) { return e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && e.keyCode !== 229; }
-  function renderAll() { renderAgent(); renderQueue(); renderLots(); renderList(); renderInspector(); draw(); drawOv(); syncStage(); if (onTab('scene')) renderScene(); }
+  function renderAll() { syncModalUpdates(); renderAgent(); renderQueue(); renderLots(); renderList(); renderInspector(); draw(); drawOv(); syncStage(); if (onTab('scene')) renderScene(); }
   function gestureHtml(n) {
     if (n.stage) return `<div class="gest">${ic('move')}<span class="obj">${esc(n.stage.name)}</span><span class="k">${esc(deltaWords(n.stage.delta))}</span></div>`;
     if (!n.mark && !n.target) return '';
