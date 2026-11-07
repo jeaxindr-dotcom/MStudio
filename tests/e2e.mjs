@@ -230,13 +230,14 @@ try {
   // a heavy scene mounting FREEZES the preview while it plays (03/11/2026, 宇宙ちゃん long07: 6 s, then 2758 → 2944): it goes
   // on from the frame it froze at, nothing skipped; and a pause asked during a freeze stops on the frame that was shown
   {
-    await p.eval(`window.__preview.seek(300); return 1`); await sleep(1500);
-    await p.eval(`window.__preview.play(); return 1`); await sleep(1500);
-    const before = await p.eval('return window.__preview.frame()');
-    await p.frameEval('player.html', `setTimeout(() => { const t = performance.now(); while (performance.now() - t < 2500) {} }, 0); return 1`);
+    // Le garde protège une lecture établie. Un délai après play pouvait expirer
+    // encore à l'image 300, pendant le chargement de la scène.
+    await p.eval('await window.__preview.prepare(300); await window.__preview.play()');
+    await p.until('__preview.isPlaying() && __preview.frame() >= 360 && !__preview.isBuffering()');
+    const before = await p.frameEval('player.html', `const f = StudioPlayer.frame(); setTimeout(() => { const t = performance.now(); while (performance.now() - t < 2500) {} }, 0); return f`);
     await sleep(3200);
     const after = await p.eval('return window.__preview.frame()');
-    check(after - before < 45, `a freeze of 2.5 s while playing: the playback goes on where it froze (${before} → ${after}, no 75 frames skipped)`);
+    check(after > before && after - before < 45, `a freeze of 2.5 s while playing: the playback goes on where it froze (${before} → ${after}, no 75 frames skipped)`);
     await p.frameEval('player.html', `setTimeout(() => { const t = performance.now(); while (performance.now() - t < 2500) {} }, 0); return 1`);
     await sleep(400);
     const shown = await p.eval('return window.__preview.frame()');
@@ -248,6 +249,7 @@ try {
   // the preview FROZEN (user report 31/10/2026, Lesson 1: « L'aperçu ne répond plus depuis 30 secondes », and « Réessayer »
   // did nothing — the new preview was prepared behind the frozen one, in the same renderer process, frozen with it)
   const fBefore = await p.eval('return __studio.state().frame');
+  const oldOrigin = await p.eval('return new URL(document.querySelector("#code").src).origin');
   await p.frameEval('player.html', `setTimeout(() => { for (;;) {} }, 50); return 1`);
   await p.until(`document.querySelector('#codeCrash').classList.contains('on') && /ne répond plus/.test(document.querySelector('#codeCrash').innerText)`, 60000).catch(() => {});
   const frozen = await p.eval(`return /ne répond plus/.test(document.querySelector('#codeCrash').innerText) && document.querySelector('#codeCrash').classList.contains('on')`);
@@ -255,7 +257,8 @@ try {
   await p.until(`window.__preview && !window.__preview.crashed() && window.__preview.frameReady()`, 150000).catch(() => {});
   await sleep(1500);
   const revived = await p.eval(`return { on: document.querySelector('#codeCrash').classList.contains('on'), ok: !!window.__preview && !window.__preview.crashed() && window.__preview.frameReady(), frame: __studio.state().frame, frames: document.querySelectorAll('iframe[src*="player.html"]').length }`);
-  check(frozen && !revived.on && revived.ok && Math.abs(revived.frame - fBefore) <= 2 && revived.frames === 1,
+  const newOrigin = await p.eval('return new URL(document.querySelector("#code").src).origin');
+  check(frozen && !revived.on && revived.ok && Math.abs(revived.frame - fBefore) <= 2 && revived.frames === 1 && newOrigin !== oldOrigin,
     `a frozen preview: « ne répond plus » said, then « Réessayer » destroys it and loads a new one at the same image ${JSON.stringify({ frozen, ...revived, fBefore })}`);
   await p.eval(`document.querySelector('#srcVideo').click(); return 1`); await sleep(500);
   check((await p.eval('return __studio.state().mode')) === 'video', 'back to the MP4');

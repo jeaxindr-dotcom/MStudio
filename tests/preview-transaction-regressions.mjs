@@ -80,6 +80,19 @@ test('G4 : déplacer l’image pendant la préparation annule l’échange', asy
   ready.resolve(); await done;
   assert.equal(f.c.SP, old); assert.equal(old.disposed, false);
 });
+test('Restauration du son : préparer la nouvelle image sur la même candidate', async () => {
+  const ready = defer(), f = fixture({readiness: ready}), old = f.c.SP; old.at = 15;
+  const done = f.c.loadCode({fresh: true, repair: {}}); f.remotes[0].resolve(); await later();
+  old.at = 180; ready.resolve();
+  assert.equal((await done).frame(), 180); assert.equal(f.remotes.length, 1);
+  assert.deepEqual(f.trace.filter(x => x[0] === 'validé').map(x => x[2]), [15, 180]);
+});
+test('Restauration du son : un changement de mise en scène réclame une nouvelle tentative', async () => {
+  const ready = defer(), f = fixture({readiness: ready}), old = f.c.SP, repair = {};
+  const done = f.c.loadCode({fresh: true, repair}); f.remotes[0].resolve(); await later();
+  old.stage.list = () => [{id: 'décor', delta: {s: 2}}]; ready.resolve();
+  assert.equal(await done, old); assert.equal(old.disposed, false); assert.equal(repair.retry, true);
+});
 test('G4 : une réponse freePose tardive ne remplace jamais une génération plus récente', async () => {
   const f = fixture({staging: true});
   const a = f.c.loadCode(); f.remotes[0].resolve(); await later();

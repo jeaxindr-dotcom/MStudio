@@ -96,7 +96,7 @@ const timeline = (src = 'a.wav') => ({ fps: 30, frames: 300, tracks: [{ type: 'a
 
 function makeSound() {
   let now = 0, serial = 0, currentShared = null, effectCleanup = null;
-  const timers = new Map(), contexts = [], events = [];
+  const timers = new Map(), contexts = [], events = [], media = [];
   class AudioContextMock {
     state = 'running'; currentTime = 0; sampleRate = 48000; freeze = false; resumes = 0;
     listeners = new Map();
@@ -113,11 +113,12 @@ function makeSound() {
     const pair = [...timers].filter(([, t]) => t.next <= end).sort((a, b) => a[1].next - b[1].next)[0];
     const to = pair ? pair[1].next : end, delta = to - now;
     for (const c of contexts) if (c.state === 'running' && !c.freeze) c.currentTime += delta / 1000;
+    for (const el of media) if (!el.paused) el.currentTime += delta / 1000;
     now = to; if (!pair) break;
     const [id, t] = pair; if (t.repeat) t.next += t.ms; else timers.delete(id); t.fn();
   } };
   const source = stripTypeScriptTypes(read('player/sound.ts').replace(/^import .*;\r?$/gm, '').replaceAll('export function ', 'function '), { mode: 'strip' });
-  const context = { window: win, document: { hidden: false }, performance: { now: () => now },
+  const context = { window: win, document: { hidden: false, querySelectorAll: () => media }, performance: { now: () => now },
     setTimeout: (fn, ms) => schedule(fn, ms, false), clearTimeout: (id) => timers.delete(id),
     setInterval: (fn, ms) => schedule(fn, ms, true), clearInterval: (id) => timers.delete(id),
     useContext: () => currentShared, useEffect: (effect) => { effectCleanup = effect(); }, Internals: { SharedAudioContext: {} },
@@ -127,13 +128,15 @@ function makeSound() {
   const playerListeners = new Map();
   const player = { playing: true, muted: false, buffering: false,
     isPlaying() { return this.playing; }, isMuted() { return this.muted; }, isBuffering() { return this.buffering; },
-    mute() { this.muted = true; }, unmute() { this.muted = false; }, pause() { this.playing = false; },
+    mute() { if (!this.muted) { this.muted = true; playerListeners.get('mutechange')?.({detail: {isMuted: true}}); } },
+    unmute() { if (this.muted) { this.muted = false; playerListeners.get('mutechange')?.({detail: {isMuted: false}}); } },
+    pause() { this.playing = false; }, setVolume() {},
     addEventListener(type, fn) { playerListeners.set(type, fn); }, removeEventListener(type) { playerListeners.delete(type); },
   };
   const c = new win.AudioContext();
   const bind = (ctx) => sound.bindContext?.(ctx) ?? (() => {});
   bind(c); const detach = sound.attach(player);
-  return { sound, player, playerListeners, c, events, win, Native: AudioContextMock, bind, clock, detach, context, setShared: (ctx) => { currentShared = ctx; }, cleanupEffect: () => effectCleanup?.() };
+  return { sound, player, playerListeners, c, events, media, win, Native: AudioContextMock, bind, clock, detach, context, setShared: (ctx) => { currentShared = ctx; }, cleanupEffect: () => effectCleanup?.() };
 }
 {
   const s = makeSound();
@@ -188,6 +191,34 @@ function makeSound() {
   const s = makeSound(), other = new s.win.AudioContext();
   await s.sound.dispose?.();
   check(s.c.state === 'closed' && other.state === 'running' && s.sound.contexts().length === 0, 'la destruction définitive ferme seulement le contexte lié au Player');
+}
+const piste = () => ({ tagName: 'AUDIO', currentSrc: 'voix.wav', volume: 1, currentTime: 0, paused: false, muted: false });
+{
+  const s = makeSound(); s.media.push(piste()); s.player.playing = false; s.c.state = 'suspended'; s.sound.restore(); s.clock(3600);
+  check(s.events.some(e => e.state === 'armed') && !s.events.some(e => e.state === 'back') && s.c.resumes === 0,
+    'bouton à l’arrêt : vérification armée, aucun démarrage caché');
+  s.player.playing = true; s.playerListeners.get('play')(); s.clock(500);
+  check(s.events.some(e => e.state === 'back') && s.c.state === 'running', 'Lecture confirme après progression de la piste et du contexte');
+}
+{
+  const s = makeSound(); s.c.freeze = true; s.media.push(piste()); s.sound.restore(); s.clock(3000);
+  check(s.events.some(e => e.state === 'failed') && !s.events.some(e => e.state === 'back'), 'une balise qui avance dans un contexte running figé ne confirme jamais le son');
+}
+{
+  const s = makeSound(); s.media.push({...piste(), paused: true}); s.sound.restore(); s.clock(3000);
+  check(s.events.some(e => e.state === 'failed') && !s.events.some(e => e.state === 'back'), 'un contexte qui avance avec la seule piste en panne ne confirme jamais le son');
+}
+{
+  const s = makeSound();
+  s.media.push({...piste(), muted: true}, {...piste(), tagName: 'VIDEO'}, {...piste(), currentSrc: 'data:audio/mp3;base64,/+MYxAAJcAV8AAgAABn//////+/gQ5'});
+  s.sound.restore(); s.clock(3000);
+  check(s.events.some(e => e.state === 'quiet') && !s.events.some(e => ['back', 'failed'].includes(e.state)), 'silence voulu, vidéo sans son et balise de réserve : attente sans succès ni reconstruction');
+  s.media.push(piste()); s.clock(1500);
+  check(s.events.some(e => e.state === 'back'), 'la première vraie piste audible confirme ensuite la demande');
+}
+{
+  const s = makeSound(); s.sound.mute(); s.c.state = 'suspended'; s.c.dispatch('statechange'); s.playerListeners.get('resume')(); s.clock(12000);
+  check(s.c.resumes === 0 && !s.events.length, 'la sourdine du master empêche tout réveil, même après tampon');
 }
 console.log(`\n${ok} ok, ${ko} ko${revision ? ` (référence ${revision})` : ''}`);
 process.exitCode = ko ? 1 : 0;

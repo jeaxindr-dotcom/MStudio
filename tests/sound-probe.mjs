@@ -30,13 +30,27 @@ export function sonDuBac(p) {
     return etat;
   }
   async function attendreSon(ms = 12000) {
-    await p.until('/rétabli/i.test(document.querySelector("#save").textContent)', ms);
+    try { await p.until('/rétabli/i.test(document.querySelector("#save").textContent)', ms); }
+    catch (e) { throw new Error('Confirmation sonore absente. Message affiché : ' + await message(), {cause: e}); }
     return preuve();
+  }
+  async function mesurerClic(id) {
+    // Chronométrer du geste reçu à la confirmation affichée ; la lecture des
+    // balises par le test est une contre-mesure, extérieure à ce temps.
+    await p.eval(`document.getElementById(${JSON.stringify(id)}).addEventListener('click', () => {
+      const debut = performance.now(), save = document.querySelector('#save'); window.delaiSon = null;
+      const obs = new MutationObserver(() => {
+        if (/rétabli/i.test(save.textContent)) { window.delaiSon = Math.round(performance.now() - debut); obs.disconnect(); }
+      });
+      obs.observe(save, {childList:true, subtree:true});
+    }, {once:true, capture:true})`);
+    await clic(id); await attendreSon();
+    const ms = await p.eval('return window.delaiSon'); assert.ok(Number.isFinite(ms)); return ms;
   }
   async function attendreDans(js, ms = 8000) {
     const fin = Date.now() + ms;
     do { if (await dans('return (' + js + ')')) return; await dormir(80); } while (Date.now() < fin);
     assert.fail('État absent dans l’aperçu : ' + js);
   }
-  return {adresse, dans, message, clic, arret, preuve, attendreSon, attendreDans};
+  return {adresse, dans, message, clic, arret, preuve, attendreSon, attendreDans, mesurerClic};
 }

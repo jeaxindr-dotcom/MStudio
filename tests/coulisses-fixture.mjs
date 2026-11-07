@@ -16,7 +16,7 @@ const w = (rel, txt) => { const f = path.join(PROJET, rel); fs.mkdirSync(path.di
 
 // slowScene: ms — the scene s02 mounts slowly (delayRender until then, nothing drawn: a Theatre stage loading its
 // textures), for tests/preview-wait.mjs
-export function makeFixture({ slowScene = 0, premount = 0, forgetCleanup = false, master = false } = {}) {
+export function makeFixture({ slowScene = 0, premount = 0, forgetCleanup = false, master = false, seconds = 10 } = {}) {
   if (!MODULES) throw new Error("pas de projet Remotion avec ses node_modules sur ce PC (COULISSES_TEST_REMOTION=<son dossier>)");
   // never a recursive delete through the junction: remove it first
   const nm = path.join(PROJET, 'node_modules');
@@ -35,7 +35,7 @@ export const RUN = {
   plans: [
     { id: 's01', titre: 'Le sujet', de: 0, a: 90, couleur: '#3b2f6b' },
     { id: 's02', titre: 'Trois chiffres', de: 90, a: 210, couleur: '#14532d' },
-    { id: 's03', titre: 'La conclusion', de: 210, a: 300, couleur: '#7c2d12' },
+    { id: 's03', titre: 'La conclusion', de: 210, a: ${seconds * 30}, couleur: '#7c2d12' },
   ],
   voix: 'essai/${master ? 'mix' : 'voix'}.wav',
 ${slowScene ? `  lent: ${slowScene},
@@ -86,7 +86,7 @@ export function timeline(_id: string, _props: unknown) {
     fps: RUN.fps, durationInFrames: totalFrames(),
 ${master ? `    reviewAudio: { src: RUN.voix, offsetFrames: 0, volume: 1 },\n` : ''}
     pistes: [
-      { id: 'chap', nom: 'Chapitres', type: 'band', clips: [{ de: 0, a: 210, label: 'acte 1' }, { de: 210, a: 300, label: 'acte 2' }] },
+      { id: 'chap', nom: 'Chapitres', type: 'band', clips: [{ de: 0, a: 210, label: 'acte 1' }, { de: 210, a: ${seconds * 30}, label: 'acte 2' }] },
       { id: 'V1', nom: 'Plans', type: 'video', clips: RUN.plans.map((p) => ({ de: p.de, a: p.a, label: \`plan \${p.id} · \${p.titre}\`, fichier: 'src/Video.tsx', ref: p.id })) },
       { id: 'A1', nom: 'Voix', type: 'audio', clips: [{ de: 0, a: totalFrames(), label: 'voix du film', fichier: 'public/' + RUN.voix, son: RUN.voix }] },
     ],
@@ -135,7 +135,7 @@ export const Root: React.FC = () => (
     '',
   ].join('\n'));
   fs.mkdirSync(path.join(PROJET, 'public', 'essai'), { recursive: true });
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=10', '-ac', '1', path.join(PROJET, 'public', 'essai', 'voix.wav')]);
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=330:duration=${seconds}`, '-ac', '1', path.join(PROJET, 'public', 'essai', 'voix.wav')]);
   if (r.status) throw new Error('ffmpeg');
   // Même source maître dans la composition et la déclaration : aucune reconstruction
   // des pistes descriptives pour les tests du couplage son/image.

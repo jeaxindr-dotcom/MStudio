@@ -17,7 +17,7 @@ process.env.STUDIO_PROJECTS = path.join(cache, 'projets.json');
 process.env.COULISSES_SETTINGS = path.join(cache, 'settings.json');
 fs.writeFileSync(process.env.COULISSES_SETTINGS, '{"lang":"fr"}');
 process.env.COULISSES_LANG = 'fr'; process.env.COULISSES_REVIEW_SOUND = '0';
-makeFixture({slowScene: 800});
+makeFixture({slowScene: 800, seconds: 30});
 const {importProject} = await import('../lib/projects.mjs');
 const port = await freePort(4260), url = 'http://127.0.0.1:' + port + '/';
 const st = spawn(process.execPath, ['studio-server.mjs', '--project', importProject(RUN).revue, '--no-open', '--port', String(port)],
@@ -31,6 +31,15 @@ try {
   await requireSandbox(url, RUN);
   p = await launch({port: await freePort(9363)});
   const {adresse, clic, dans, arret, preuve, attendreSon, attendreDans, message} = sonDuBac(p);
+  // Installer la barrière AVANT le pont de la page, y compris sur les Chromium
+  // qui livrent message à la fenêtre dans l'ordre d'inscription.
+  await p.send('Page.addScriptToEvaluateOnNewDocument', {source: `
+    window.addEventListener('message', e => {
+      if (!window.retenirCandidate || e.source !== document.querySelector('.code-next')?.contentWindow) return;
+      if (e.data?.value?.ready !== true) return;
+      e.stopImmediatePropagation();
+      window.liberer = () => { window.retenirCandidate = false; window.dispatchEvent(new MessageEvent('message', {origin:e.origin, source:e.source, data:e.data})); };
+    });`});
   await p.goto(url); await p.until('window.__studio?.state().mode === "code" && window.__preview?.frameReady()', 120000);
   await p.eval('document.querySelector(\'.spd[data-s="0.5"]\').click()');
   await arret(60); const depart = await adresse();
@@ -76,13 +85,9 @@ try {
 
   ancien = await panne('await c.close()', 'Fermeture du contexte');
   await arret(32);
-  // Retenir le vrai hello de la candidate dans la page. Les boutons, prepare,
-  // messages du Player, adoption et reprise passent par le chemin livré.
-  await p.eval(`window.addEventListener('message', function retenir(e) {
-    if (!e.data?.hello || e.source !== document.querySelector('.code-next')?.contentWindow) return;
-    e.stopImmediatePropagation(); window.removeEventListener('message', retenir, true);
-    window.liberer = () => window.dispatchEvent(new MessageEvent('message', {origin:e.origin, source:e.source, data:e.data}));
-  }, true)`);
+  // Retenir la réponse à prepare dans la page. La candidate a déjà préparé
+  // l'image 32 quand la cible devient 52. Le pont doit valider la dernière cible.
+  await p.eval('window.retenirCandidate = true');
   await clic('bSound'); await p.until('window.liberer');
   assert.doesNotMatch(await message(), /rétabli/i);
   await p.eval('location.hash = "f=52"'); await p.until('__preview.frame() === 52');
@@ -99,6 +104,21 @@ try {
   assert.equal(await p.eval('return document.querySelectorAll(\'iframe[src*="player.html"]\').length'), 1);
   passe('Adoption à l’image 52 et son vérifié sur la Lecture mise en attente');
   await arret(40);
+
+  // Si la sortie reste morte dans l'aperçu neuf, aucun « rétabli », ni
+  // nouvelle boucle de reconstructions. Une Pause annule la Lecture en attente.
+  await dans('await __coulissesAudio[0].close()');
+  await p.eval(`delete window.liberer; window.retenirCandidate = true; window.annonces = [];
+    new MutationObserver(() => annonces.push(document.querySelector('#save').textContent))
+      .observe(document.querySelector('#save'), {childList:true, subtree:true})`);
+  await clic('bSound'); await p.until('window.liberer');
+  const candidate = await p.eval('return document.querySelector(".code-next").src');
+  await p.frameEval(candidate, 'await __coulissesAudio[0].close()');
+  await clic('bPlay'); await clic('bPlay');
+  await p.eval('liberer()');
+  await p.until('document.querySelector("#code").src === ' + JSON.stringify(candidate) + ' && /Toujours pas de son/.test(document.querySelector("#save").textContent)');
+  assert.ok(await p.eval('return !__preview.isPlaying() && !annonces.some(t => /rétabli/i.test(t)) && !document.querySelector(".code-next")'));
+  passe('Panne persistante dans la nouvelle iframe annoncée, Pause respectée et aucun faux succès');
 } catch (e) { console.error('  ✗', e.stack, journal.slice(-600)); process.exitCode = 1; }
 finally { await p?.close(); st.kill(); }
 console.log('\n' + ok + ' ok, ' + (process.exitCode || 0) + ' ko');

@@ -13,7 +13,7 @@ const bac = process.env.STUDIO_SANDBOX ?? path.join(studio, 'sandbox', '07_Episo
 const url = 'http://127.0.0.1:' + (process.env.STUDIO_PORT ?? 4174) + '/';
 await requireFrench(url); await requireSandbox(url, bac);
 const p = await launch({port: await freePort(9333)});
-const {adresse, clic, dans, arret, preuve, attendreSon, attendreDans, message} = sonDuBac(p);
+const {adresse, clic, dans, arret, preuve, attendreSon, attendreDans, message, mesurerClic} = sonDuBac(p);
 let ok = 0;
 const passe = (titre) => { ok++; console.log('  ✓ ' + titre); };
 try {
@@ -24,9 +24,9 @@ try {
 
   // Un échec de reprise du périphérique fait réellement muter Remotion.
   await clic('bPlay'); await attendreDans('!StudioPlayer.isPlaying() && __coulissesAudio[0].state === "suspended"');
-  await dans(`const c = __coulissesAudio[0]; window.pannes = 0;
-    c.resume = async () => { pannes++; throw new DOMException('périphérique', 'InvalidStateError'); }`);
-  await clic('bPlay'); await attendreDans('StudioPlayer.isMuted() && pannes >= 1');
+  await dans(`const c = __coulissesAudio[0]; window.refus = [];
+    c.resume = async () => { refus.push(performance.now()); throw new DOMException('périphérique', 'InvalidStateError'); }`);
+  await clic('bPlay'); await attendreDans('StudioPlayer.isMuted() && refus.at(-1) - refus[0] >= 900');
   await p.until('/coupé/.test(document.querySelector("#save").textContent)');
   passe('Le Player se met en sourdine et la coupure est annoncée');
   await dans('delete __coulissesAudio[0].resume');
@@ -36,18 +36,22 @@ try {
   passe('Pause puis Lecture conservent le son');
 
   // Figer uniquement le fil de l’iframe, sans boucle qui charge un cœur du PC.
-  await dans(`const c = __coulissesAudio[0]; window.initial = c; c.resume = async () => { throw new Error('périphérique indisponible'); }; await c.suspend()`);
+  await arret(900); await clic('bPlay'); await preuve();
+  await dans(`const c = __coulissesAudio[0]; window.initial = c;
+    const pistes = [...document.querySelectorAll('audio')].filter(a => a.currentSrc && !a.currentSrc.startsWith('data:') && !a.muted && !a.paused);
+    window.piste = pistes.sort((a,b) => (b.duration - b.currentTime) - (a.duration - a.currentTime))[0];
+    if (!piste) throw new Error('piste E03 absente');
+    c.resume = async () => { throw new Error('périphérique indisponible'); }; await c.suspend()`);
   await p.frameSend(origine, 'Debugger.enable');
   await p.frameSend(origine, 'Debugger.pause'); await dormir(1500);
   await p.frameSend(origine, 'Debugger.resume'); await p.frameSend(origine, 'Debugger.disable');
-  assert.ok(await dans('return StudioPlayer.isPlaying() && initial.state === "suspended"'));
+  await attendreDans('StudioPlayer.isPlaying() && initial.state === "suspended"');
   // Une balise de la scène s’est aussi arrêtée. Son redémarrage doit respecter
   // les séquences que Remotion garde prémontées ou déjà terminées.
-  await dans(`window.piste = [...document.querySelectorAll('audio')].find(a => a.currentSrc && !a.currentSrc.startsWith('data:') && !a.muted && !a.paused);
-    if (!piste) throw new Error('piste E03 absente'); piste.pause(); delete initial.resume`);
-  let t = Date.now(); await clic('bSound'); await attendreSon();
+  await dans('piste.pause(); delete initial.resume');
+  const enLecture = await mesurerClic('bSound');
   assert.ok(await dans('return __coulissesAudio[0] === initial && !piste.paused'));
-  assert.equal(await adresse(), origine); passe('Après gel et perte audio, son sur place en lecture (' + (Date.now() - t) + ' ms avec contre-mesure)');
+  assert.equal(await adresse(), origine); passe('Après gel et perte audio, son sur place en lecture (' + enLecture + ' ms)');
 
   await arret(900);
   await dans('StudioPlayer.mute()'); await attendreDans('StudioPlayer.isMuted()');
@@ -55,8 +59,8 @@ try {
   assert.doesNotMatch(await message(), /rétabli/i);
   assert.equal(await dans('return StudioPlayer.frame()'), 900); assert.equal(await dans('return StudioPlayer.isPlaying()'), false);
   assert.equal(await adresse(), origine); passe('À l’arrêt, même image et aucune annonce de succès anticipée');
-  t = Date.now(); await clic('bPlay'); await attendreSon();
-  assert.equal(await adresse(), origine); passe('Lecture confirme le son sur place (' + (Date.now() - t) + ' ms avec contre-mesure)');
+  const aLaReprise = await mesurerClic('bPlay');
+  assert.equal(await adresse(), origine); passe('Lecture confirme le son sur place (' + aLaReprise + ' ms)');
 
   await dans('StudioPlayer.mute()'); await attendreDans('StudioPlayer.isMuted()');
   await p.eval('const r = document.querySelector("#vol"); r.value = "0.6"; r.dispatchEvent(new Event("input"))');

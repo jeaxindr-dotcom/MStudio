@@ -6,7 +6,7 @@
 // tests/coulisses-fixture.mjs, a Chrome with Chrome's own rule (silent: tests/cdp.mjs), REAL clicks of the mouse:
 //   1. « Lecture »: the video moves, with its sound;
 //   2. a new version of the code (a new frame: the agent's fix), « Lecture » again: the same;
-//   3. « Rétablir le son » (the speaker): the preview made again, « Lecture »: the same.
+//   3. « Rétablir le son » à l'arrêt, puis Lecture : reprise vérifiée sur place avec les règles d'autoplay d'un onglet.
 // usage: node tests/sound-tab.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -73,11 +73,20 @@ try {
   // ---------- 3. « Rétablir le son » ----------
   await pauseAt(20);
   await click('#bSound');
-  let v2 = v1; for (let i = 0; i < 120 && (!v2 || v2 === v1); i++) { await sleep(500); v2 = await shown(); }
-  await sleep(1500);
-  await pauseAt(20); await click('#bPlay'); await sleep(1500);
+  await p.until('/lecture/i.test(document.querySelector("#save").textContent)');
+  await click('#bPlay');
+  await p.until('/rétabli/i.test(document.querySelector("#save").textContent)');
   const s3 = await sound();
-  check(v2 !== v1 && good(s3), `« Rétablir le son »: the preview made again, « Lecture »: the same (${JSON.stringify(s3)})`);
+  check(await shown() === v1 && good(s3), `« Rétablir le son » puis Lecture dans le même aperçu (${JSON.stringify(s3)})`);
+  // En onglet soumis à la règle d'autoplay, exercer aussi le vrai repli à l'arrêt.
+  await pauseAt(20);
+  await p.frameEval(v1, 'await __coulissesAudio[0].close()');
+  await click('#bSound');
+  await p.until('new URL(document.querySelector("#code").src).search !== ' + JSON.stringify(v1) + ' && /lecture/i.test(document.querySelector("#save").textContent)');
+  check(await ev('return __preview.frame() === 20 && !__preview.isPlaying() && !/rétabli/i.test(document.querySelector("#save").textContent)'),
+    'Contexte fermé, aperçu neuf à l’image 20 et aucune annonce anticipée');
+  await click('#bPlay'); await p.until('/rétabli/i.test(document.querySelector("#save").textContent)');
+  check(good(await sound()), 'Le clic de Lecture autorise et confirme le son de la nouvelle iframe en onglet');
   await click('#bPlay');
 } catch (e) { ko++; console.log('  ✗ ERREUR', e.stack); } finally {
   await p.close(); st.kill();
