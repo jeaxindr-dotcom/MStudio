@@ -75,6 +75,16 @@ test('G4 : prepare renvoie une preuve correspondant à l’image demandée', asy
   const f = bridge(), response = await f.call('prepare', [75]);
   assert.equal(response.ok, true); assert.equal(response.value?.frame, 75); assert.equal(response.value.ready, true); assert.equal(response.state.frame, 75);
 });
+test('Une Lecture interrompue conserve AbortError à travers les deux côtés du pont', async () => {
+  const b = bridge(), f = remote();
+  b.p.play = () => Promise.reject(new DOMException('Lecture annulée', 'AbortError'));
+  const erreur = f.api.play().catch(e => e);
+  const rep = await b.call('play'); f.receive({...rep, re: f.sent.at(-1).id});
+  const e = await erreur;
+  assert.equal(e.name, 'AbortError');
+  const filtre = read('page/studio/01-preview.js').split('\n').find(l => l.includes('const aborted ='));
+  assert.equal(vm.runInNewContext(filtre + '\naborted(e)', {e}), true);
+});
 test('G5/G8 : prepare refuse une image encore en attente', async () => {
   const f = bridge({buffering: true}), response = await f.call('prepare', [75]);
   assert.equal(response.ok, false); assert.match(response.error, /pas prête/);

@@ -79,7 +79,13 @@
       lastSeen = performance.now(); silent = false;
       if (d.hello) { if (ver !== null && d.hello.v !== undefined && String(d.hello.v) !== String(ver)) return; M.hello = d.hello; setState(d.state); helloRes(api); return; }
       if (d.state) setState(d.state);
-      if (d.re) { const w = waits.get(d.re); if (w) { clearTimeout(w.timer); waits.delete(d.re); if (d.ok) w.res(d.value); else w.rej(new Error(d.error ?? 'preview')); } return; }
+      if (d.re) {
+        const w = waits.get(d.re); if (!w) return;
+        clearTimeout(w.timer); waits.delete(d.re);
+        if (d.ok) w.res(d.value);
+        else { const error = new Error(d.error ?? 'preview'); error.name = d.errorName || 'Error'; w.rej(error); }
+        return;
+      }
       if (d.ev) {
         const ev = d.ev;
         const freshF = !(ev.seen < wroteF);   // (a frame of before the page's last seek: not taken)
@@ -141,7 +147,7 @@
         M.playing = false; send('pause'); if (frozen) send('seek', f);
       },
       setRate: (r) => send('setRate', r), setVolume: (v) => send('setVolume', v), mute: () => send('mute'), unmute: () => send('unmute'),
-      restoreSound: () => call('restoreSound').catch(() => null),   // (« Rétablir le son », player/sound.ts; true: unmuted)
+      restoreSound: () => call('restoreSound').catch(() => false),   // accusé de réception ; la preuve arrive par sound/back
       sleep: (on) => send('sleep', on), recover: (f) => { M.crashed = false; send('recover', f); }, __crash: () => send('__crash'),
       unload: () => { M.playing = false; M.ready = false; return call('unload'); },
       resume: (f) => call('resume', f),

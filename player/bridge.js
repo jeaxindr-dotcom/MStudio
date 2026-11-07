@@ -66,7 +66,7 @@
     const d = e.data; if (!d || d.coulissesPreview !== 1) return;
     if (d.shortcuts) { try { await window.Shortcuts?.reload?.(); } catch { /* the defaults */ } return; }   // the user's keys changed (Aide › Raccourcis clavier)
     if (typeof d.call !== 'string') return;
-    let value, ok = true, error = null;
+    let value, ok = true, error = null, errorName;
     seen = Math.max(seen, d.id || 0); inCall = true;
     try {
       if (d.call === 'prepare') {
@@ -85,10 +85,10 @@
       if (typeof o[name] === 'function') { quiet = !!d.quiet; try { r = o[name](...(d.args ?? [])); } finally { quiet = false; inCall = false; } } else r = o[name];
       value = await r;
       }
-    } catch (err) { ok = false; error = String(err?.message ?? err); }
+    } catch (err) { ok = false; error = String(err?.message ?? err); errorName = err?.name; }
     inCall = false;
     const state = stateOf(d.call.startsWith('stage.') || d.call === 'recover');
-    if (d.id) post({ re: d.id, ok, value: ok ? value : undefined, error, state });
+    if (d.id) post({ re: d.id, ok, value: ok ? value : undefined, error, errorName, state });
     else post({ state });
   });
   // the player there: what it is, then its events
