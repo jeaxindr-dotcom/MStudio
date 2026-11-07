@@ -18,6 +18,20 @@ if (process.argv[2] === 'reprendre') {
   process.on('message', () => process.exit());
 } else {
   const file = fileURLToPath(import.meta.url);
+  test('Un propriétaire illisible à la reprise clôt la préparation sans annoncer les images', async t => {
+    const {p, make} = fixture(t);
+    Object.assign(p, {kind:'video', ep:'Essai', title:'Essai', EP:p.REVUE, target:p.REVUE, pickVideo:() => null});
+    const {id, work} = await make(1);
+    fs.writeFileSync(path.join(work, 'proprietaire.json'), '{}');
+    const file = path.join(p.LOTS, '001.json');
+    fs.writeFileSync(file, JSON.stringify({lot:1, sentAt:new Date().toISOString(), edits:[], fps:30,
+      captureState:{id, status:'pending', done:0, total:1}}));
+    resumeLotCaptures(p, () => {});
+    const state = JSON.parse(fs.readFileSync(file)).captureState;
+    assert.equal(state.status, 'error');
+    assert.ok(state.error);
+    assert.ok(fs.existsSync(work));
+  });
   function fixture(t) {
     const base = fs.mkdtempSync(path.join(CACHE, 'test-cache-lot-'));
     const p = {REVUE: base, LOTS: path.join(base, 'lots')};
