@@ -70,6 +70,15 @@ test('le projet HyperFrames retrouve sa page et ses imports au même chemin rela
   assert.ok(fs.existsSync(path.join(frozen.hf.projet, frozen.hf.index)));
 });
 
+test('le module du Player et sa timeline hors projet ne bloquent pas une entrée Remotion interne', async () => {
+  const { p, base, dir } = fixture();
+  p.remotion.module = path.join(base, 'player-externe.ts');
+  p.remotion.timeline = path.join(base, 'timeline-externe.ts');
+  const frozen = captureProject(p, await freezeLotSources(p, { code: true, dir }));
+  assert.equal(fs.readFileSync(frozen.remotion.entree, 'utf8'), 'version A');
+  assert.ok(!frozen.remotion.module && !frozen.remotion.timeline);
+});
+
 test('sur deux volumes, un MP4 remplacé est refusé dès la vérification', async () => {
   const { p, file, dir } = fixture(), original = file('film.mp4', 'avant');
   p.pickVideo = () => original;
