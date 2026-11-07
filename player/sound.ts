@@ -1,122 +1,198 @@
-// Surveillance du contexte audio réellement détenu par le Player, lié depuis sa composition.
-// Un refus de reprise peut rendre le Player muet : reprise progressive après 1, 2, 4, 8 puis 10 s.
-// Pendant la lecture audible, hors tampon et onglet masqué, un contexte fermé, suspendu durablement
-// ou dont l'horloge reste figée produit sound/dead. La page décide ensuite de la récupération.
-// Les sons HTML natifs et les contextes des composants tiers ne sont pas surveillés ici.
-// mute() indique un silence voulu ; il ne doit jamais déclencher cette récupération.
+// Le contexte et les balises enregistrées appartiennent à cette composition.
+// Remotion sait quelles séquences peuvent jouer (prémontage, fin de plan, mute).
 import { useContext, useEffect } from 'react';
 import type { PlayerRef } from '@remotion/player';
 import { Internals } from 'remotion';
 
-// Le contexte appartient au Player : aucune substitution globale d'AudioContext.
-// Un contexte tiers ou un Player démonté ne doit pas relancer l'aperçu courant.
-type ContextBinding = { bindContext: (context: AudioContext | null) => () => void };
+type ContextBinding = { bindContext: (context: AudioContext | null, wakeTags?: () => void, isBuffering?: () => boolean) => () => void };
 type BufferingPlayer = PlayerRef & { isBuffering?: () => boolean };
 export function SoundContext({ sound }: { sound: ContextBinding }) {
   const shared = useContext(Internals.SharedAudioContext);
-  useEffect(() => sound.bindContext(shared?.audioContext ?? null), [sound, shared?.audioContext]);
+  const { audioAndVideoTags: tags, isBuffering } = useContext(Internals.SetTimelineContext) ?? {};
+  useEffect(() => sound.bindContext(shared?.audioContext ?? null, () => {
+    tags?.current?.forEach(tag => tag.play('Rétablir le son dans Coulisses'));
+  }, isBuffering), [sound, shared?.audioContext, tags, isBuffering]);
   return null;
 }
 
+// Le petit MP3 silencieux que Remotion installe dans ses balises de réserve.
+// Les vrais sons en data: et les vidéos possédant une piste audio restent admis.
+const emptyAudio = 'data:audio/mp3;base64,/+MYxAAJcAV8AAgAABn//////+/gQ5';
+function mediaWithSound() {
+  // Le pool du SDK est frère du conteneur renvoyé par getContainerNode().
+  const media = document.querySelectorAll<HTMLMediaElement>('#stage audio, #stage video');
+  return Array.from(media).filter(el => {
+    const video = el as HTMLVideoElement & { audioTracks?: { length: number }; webkitAudioDecodedByteCount?: number; mozHasAudio?: boolean };
+    return el.currentSrc && !el.currentSrc.startsWith(emptyAudio) && !el.ended &&
+      (el.tagName === 'AUDIO' || video.audioTracks?.length || video.webkitAudioDecodedByteCount || video.mozHasAudio);
+  });
+}
+
 export function createSound(emit: (type: string, extra?: Record<string, unknown>) => void) {
-  let wanted = false, wait = 1000, lost = false, again: ReturnType<typeof setTimeout> | null = null, calm: ReturnType<typeof setTimeout> | null = null;
-  let cur: BufferingPlayer | null = null;
-  let context: AudioContext | null = null, releaseContext: (() => void) | null = null, binding: object | null = null;
-  let fails: number[] = [], deadAt = -1e9;   // refus des 20 dernières secondes, puis dernier signal de panne
-  let buffering = false, since = 0, bad = 0, lastT = -1, lastW = 0, resumed = false;
-  const clear = () => { if (again) clearTimeout(again); if (calm) clearTimeout(calm); again = calm = null; };
-  const resetWatch = () => { since = performance.now(); bad = 0; lastT = -1; lastW = 0; resumed = false; };
-  const active = () => !!cur && !wanted && !buffering && !cur.isBuffering?.() && !document.hidden && cur.isPlaying() && !cur.isMuted();
+  let cur: BufferingPlayer | null = null, wantedMute = false, volume = 1, buffering = false;
+  let context: AudioContext | null = null, releaseContext: (() => void) | null = null, wakeTags: (() => void) | undefined;
+  let readBuffering: (() => boolean) | undefined;
+  let resuming: Promise<void> | null = null;
+  let syncMute = false, wakeMedia = false;
+  let lost = false, explicit = false, delay = 1000, fails: number[] = [], deadAt = -Infinity;
+  let retry: ReturnType<typeof setTimeout> | null = null, probe: ReturnType<typeof setTimeout> | null = null;
+  let since = 0, lastT = -1, lastW = 0, bad = 0, notice = '';
+  type Sample = { at: number; clock: number; positions: Map<HTMLMediaElement, { src: string; time: number }> };
+  let sample: Sample | null = null;
+
+  const clearRetry = () => { if (retry !== null) clearTimeout(retry); retry = null; };
+  const clearProbe = () => { if (probe !== null) clearTimeout(probe); probe = null; sample = null; };
+  const resetWatch = () => { since = performance.now(); bad = 0; lastT = -1; };
+  const waiting = () => readBuffering?.() ?? cur?.isBuffering?.() ?? buffering;
+  const active = () => !!cur?.isPlaying() && !wantedMute && volume > 0 && !document.hidden && !waiting();
+  const tell = (state: string, why?: string) => {
+    if (notice === state) return;
+    notice = state; emit('sound', { state, why });
+  };
   const dead = (why: string) => {
-    const t = performance.now(); if (t - deadAt < 20000) return;   // laisser aboutir la récupération en cours
-    deadAt = t; bad = 0; fails = []; clear();
-    emit('sound', { state: 'dead', why });
-  };
-  const onMute = (e: any) => {
-    const r = cur; if (!r) return;
-    if (e?.detail?.isMuted) {
-      if (wanted) return;
-      const t = performance.now(); fails = fails.filter((x) => t - x < 20000); fails.push(t);
-      if (fails.length >= 4) { dead('refused'); return; }
-      if (!lost) { lost = true; emit('sound', { state: 'lost' }); }
-      if (calm) { clearTimeout(calm); calm = null; }
-      if (again) clearTimeout(again);
-      again = setTimeout(() => { again = null; if (cur === r && r.isMuted() && !wanted) r.unmute(); }, wait);
-      wait = Math.min(10000, wait * 2);
-    } else if (lost) {
-      // Confirmer le retour après trois secondes sans nouvelle coupure automatique.
-      if (calm) clearTimeout(calm);
-      calm = setTimeout(() => { calm = null; if (cur === r && !r.isMuted()) { lost = false; wait = 1000; fails = []; emit('sound', { state: 'back' }); } }, 3000);
+    if (explicit) {
+      explicit = lost = false; clearRetry(); clearProbe(); tell('failed', why); return;
     }
+    const t = performance.now(); if (t - deadAt < 20000) return;
+    deadAt = t; bad = 0; fails = []; clearRetry();
+    tell('dead', why);
   };
-  // Contrôle chaque seconde, uniquement pendant la lecture audible.
+  const wake = () => {
+    const c = context;
+    if (!active() || cur!.isMuted() || !c || c.state === 'running' || c.state === 'closed' || resuming) return;
+    try {
+      const attempt = c.resume(); resuming = attempt;
+      const done = () => { if (resuming === attempt) resuming = null; };
+      attempt.then(done, done);
+    } catch { /* la surveillance mesure le résultat même en cas de refus synchrone */ }
+  };
+  const schedule = (ms: number) => {
+    if ((explicit || lost) && probe === null) probe = setTimeout(inspect, ms);
+  };
+  function inspect() {
+    probe = null;
+    const r = cur, c = context;
+    if (!r || wantedMute || !volume || (!explicit && !lost)) return;
+    if (!explicit && r.isMuted()) return;
+    if (c?.state === 'closed') { dead('closed'); return; }
+    if (!active()) {
+      sample = null;
+      if (explicit) tell(r.isPlaying() ? 'waiting' : 'armed');
+      return; // play, resume ou le contrôle périodique reprendra la mesure.
+    }
+    const now = performance.now(), clock = c?.currentTime ?? 0;
+    if (!sample) sample = { at: now, clock, positions: new Map() };
+    if (explicit && notice !== 'quiet') tell('checking');
+    if (wakeMedia && !r.isMuted()) { wakeMedia = false; wakeTags?.(); }
+    const media = mediaWithSound().filter(el => !el.muted && el.volume > 0);
+    let mediaAdvance = 0;
+    for (const el of media) {
+      const start = sample.positions.get(el);
+      if (!start || start.src !== el.currentSrc) sample.positions.set(el, { src: el.currentSrc, time: el.currentTime });
+      else if (!el.paused && !el.seeking) mediaAdvance = Math.max(mediaAdvance, el.currentTime - start.time);
+    }
+    const elapsed = now - sample.at;
+    const clockOK = c?.state === 'running' && clock - sample.clock >= 0.3 * elapsed / 1000;
+    if (elapsed >= 100 && clockOK && !r.isMuted() && mediaAdvance > 0.025) {
+      const clockAdvance = clock - sample.clock;
+      explicit = lost = false; delay = 1000; fails = []; deadAt = -Infinity; clearRetry(); clearProbe(); notice = 'back';
+      emit('sound', { state: 'back', context: c.state, clockAdvance, mediaAdvance }); return;
+    }
+    // Un passage sans piste audible ne justifie jamais de reconstruire toute la scène.
+    // Une balise Web Audio peut publier son temps HTML par pas de plus d'une seconde.
+    if (elapsed >= 2200) {
+      if (explicit && (!clockOK || r.isMuted() || media.length > 0)) {
+        dead(!clockOK ? 'clock' : 'media'); return;
+      }
+      if (explicit) tell('quiet');
+      sample = null;
+    }
+    schedule(notice === 'quiet' ? 500 : 120);
+  }
+  const onMute = (e: { detail: { isMuted: boolean } }) => {
+    const r = cur; if (!r || wantedMute || !volume) return;
+    if (e.detail.isMuted) {
+      if (syncMute) { syncMute = false; r.unmute(); return; }
+      const t = performance.now(); fails = fails.filter(x => t - x < 20000); fails.push(t);
+      if (fails.length >= 4) { dead('refused'); return; }
+      lost = true; if (!explicit) tell('lost');
+      clearRetry();
+      retry = setTimeout(() => { retry = null; if (cur === r && r.isMuted() && !wantedMute) r.unmute(); }, delay);
+      delay = Math.min(10000, delay * 2);
+    } else { wake(); schedule(0); }
+  };
   const watch = () => {
-    if (!active()) { bad = 0; lastT = -1; resumed = false; return; }
-    const now = performance.now(), c = context;
-    if (!c || now - since < 2500) { lastT = -1; return; }   // laisser le Player reprendre son propre contexte
+    schedule(0);
+    if (!active() || cur!.isMuted()) { lastT = -1; bad = 0; return; }
+    wake(); // Couvre aussi une suspension tardive ou un événement du SDK manqué.
+    const c = context, now = performance.now(); if (!c || now - since < 2500) return;
     if (c.state === 'closed') { dead('closed'); return; }
     const t = c.currentTime;
-    let ok = c.state === 'running';
-    if (ok && lastT >= 0 && now - lastW > 800 && t - lastT < 0.3 * (now - lastW) / 1000) ok = false;
-    lastT = t; lastW = now;
-    if (ok) { bad = 0; resumed = false; return; }
-    bad++;
-    if (bad >= 2 && !resumed) {
-      resumed = true;
-      try { Promise.resolve(c.resume()).catch(() => {}); } catch { /* refus : diagnostic au contrôle suivant */ }
-    }
-    if (bad >= 5) dead(c.state === 'running' ? 'stalled' : String(c.state));
+    const ok = c.state === 'running' && (lastT < 0 || t - lastT >= 0.3 * (now - lastW) / 1000);
+    lastT = t; lastW = now; bad = ok ? 0 : bad + 1;
+    if (bad >= 5) dead(c.state === 'running' ? 'stalled' : c.state);
   };
-  const onPlay = resetWatch;
-  const onWait = () => { buffering = true; resetWatch(); }, onGo = () => { buffering = false; resetWatch(); };
+  const onPlay = () => { resetWatch(); wake(); schedule(0); };
+  const onPause = () => { clearProbe(); schedule(0); };
+  const onWait = () => { buffering = true; resetWatch(); onPause(); };
+  const onGo = () => { buffering = false; onPlay(); };
   return {
-    bindContext(c: AudioContext | null) {
-      releaseContext?.();
-      const token = {}; binding = token; context = c;
+    bindContext(c: AudioContext | null, tags?: () => void, isBuffering?: () => boolean) {
+      releaseContext?.(); context = c; wakeTags = tags; readBuffering = isBuffering; resuming = null;
       resetWatch(); deadAt = -Infinity;
-      // Diagnostic des tests : exactement le contexte lié, jamais tous ceux de la page.
       (window as any).__coulissesAudio = c ? [c] : [];
-      const onError = () => { if (binding === token && context === c && active()) dead('error'); };
+      const onError = () => { if (active()) dead('error'); };
       c?.addEventListener('error', onError);
+      c?.addEventListener('statechange', wake);
       const release = () => {
-        c?.removeEventListener('error', onError);
-        if (binding !== token) return;
-        context = null; binding = null; releaseContext = null;
-        (window as any).__coulissesAudio = [];
-        resetWatch();
+        c?.removeEventListener('error', onError); c?.removeEventListener('statechange', wake);
+        if (releaseContext !== release) return;
+        context = null; wakeTags = readBuffering = undefined; resuming = null; releaseContext = null;
+        (window as any).__coulissesAudio = []; clearProbe(); resetWatch();
       };
       releaseContext = release;
-      // Un effet React peut être repris avec le même contexte : ne pas fermer ici celui détenu par Remotion.
       return release;
     },
-    // Lier le Player monté ; après une erreur, le nouveau remplace l'ancien.
     attach(r: BufferingPlayer) {
-      cur = r; clear(); wait = 1000; lost = false; fails = []; buffering = !!r.isBuffering?.(); resetWatch();
-      const R = r as any;
-      R.addEventListener('mutechange', onMute); R.addEventListener('play', onPlay); R.addEventListener('waiting', onWait); R.addEventListener('resume', onGo);
+      cur = r; clearRetry(); delay = 1000; lost = explicit = false; notice = ''; fails = []; buffering = !!r.isBuffering?.(); resetWatch();
+      r.addEventListener('mutechange', onMute); r.addEventListener('play', onPlay); r.addEventListener('pause', onPause);
+      r.addEventListener('waiting', onWait); r.addEventListener('resume', onGo);
       const tick = setInterval(watch, 1000);
-      if (r.isMuted() && !wanted) r.unmute();
+      if (r.isMuted() && !wantedMute) r.unmute();
       return () => {
         clearInterval(tick);
-        R.removeEventListener('mutechange', onMute); R.removeEventListener('play', onPlay); R.removeEventListener('waiting', onWait); R.removeEventListener('resume', onGo);
-        if (cur === r) { cur = null; clear(); }
+        r.removeEventListener('mutechange', onMute); r.removeEventListener('play', onPlay); r.removeEventListener('pause', onPause);
+        r.removeEventListener('waiting', onWait); r.removeEventListener('resume', onGo);
+        if (cur === r) { cur = null; clearRetry(); clearProbe(); }
       };
     },
-    mute() { wanted = true; clear(); cur?.mute(); },
-    unmute() { wanted = false; clear(); wait = 1000; resetWatch(); cur?.unmute(); },
-    // Destruction définitive de l'iframe uniquement, jamais le nettoyage d'un effet React.
+    setVolume(x: number) {
+      volume = x; cur?.setVolume(x);
+      if (!x) { explicit = lost = syncMute = false; clearRetry(); clearProbe(); }
+    },
+    mute() { wantedMute = true; explicit = lost = syncMute = false; clearRetry(); clearProbe(); cur?.mute(); },
+    unmute() { wantedMute = false; clearRetry(); delay = 1000; resetWatch(); cur?.unmute(); },
     async dispose() {
-      wanted = true; clear(); cur?.pause(); cur = null;
+      wantedMute = true; clearRetry(); clearProbe(); cur?.pause(); cur = null;
       const owned = context;
       releaseContext?.();
       if (owned && owned.state !== 'closed') {
         try { await owned.close(); } catch { /* contexte déjà arrêté par le navigateur */ }
       }
     },
-    // Action explicite « Rétablir le son » de la page.
-    restore() { wanted = false; clear(); wait = 1000; fails = []; resetWatch(); if (cur?.isMuted()) cur.unmute(); return !!cur && !cur.isMuted(); },
+    restore() {
+      if (!cur) return false;
+      wantedMute = false; clearRetry(); clearProbe(); delay = 1000; fails = []; notice = '';
+      explicit = wakeMedia = true; resuming = null; resetWatch();
+      // Si le Player se croit audible et que toutes ses balises sont muettes,
+      // faire réappliquer le mix par Remotion. Chaque piste garde son mute de scène.
+      const media = mediaWithSound();
+      syncMute = !cur.isMuted() && media.length > 0 && media.every(el => el.muted);
+      if (syncMute) cur.mute(); else cur.unmute();
+      wake();
+      schedule(0); return 'checking'; // demande prise en compte ; seule la mesure émet « back ».
+    },
     lost: () => lost,
-    // Diagnostic : le seul contexte lié au Player courant.
     contexts: () => context ? [{ state: context.state, t: +context.currentTime.toFixed(2), rate: context.sampleRate }] : [],
   };
 }

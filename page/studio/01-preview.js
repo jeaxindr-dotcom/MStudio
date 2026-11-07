@@ -4,6 +4,7 @@
   // ---------- media: the rendered MP4, or the live preview of the code (Remotion Player in an iframe) ----------
   const aborted = (e) => e?.name === 'AbortError' || /interrupted by a (new load request|call to pause)/i.test(String(e?.message ?? ''));
   let mode = 'video', SP = null, codeVer = -1, codeLoading = null, rate = 1, vol = 1, preparedCode = null;
+  let soundRepair = null;
   const bus = new EventTarget();
   const fire = (t) => bus.dispatchEvent(new Event(t));
   const M = {
@@ -11,28 +12,34 @@
     set currentTime(t) {
       if (mode === 'code' && SP) {
         const f = Math.floor(t * FPS), now = performance.now(), quick = now - lastStep < 250;
-        if (f !== SP.frame()) cancelCodePreparation();
+        if (f !== SP.frame() && !codeLoad?.repair) cancelCodePreparation();
         if (crash) { codeRecover(f); v.currentTime = t; return; }   // after an error, the next move mounts the Player again there
         lastStep = now;
         // moving (the arrows held, steps in a row, a drag on the timeline): the frames as they come, no veil — the motion is
         // what is judged; the frame where it stops is watched (codeSettle)
-        if (SP.isPlaying() || shuttle || quick || drag?.mode === 'scrub') { pendF = null; cwSeq++; codeWaitEl.classList.remove('pend', 'pend-key', 'on'); SP.seek(f); if (!SP.isPlaying()) codeSettle(); }
+        if (soundRepair?.rebuilding || SP.isPlaying() || shuttle || quick || drag?.mode === 'scrub') { pendF = null; cwSeq++; codeWaitEl.classList.remove('pend', 'pend-key', 'on'); SP.seek(f); if (!SP.isPlaying()) codeSettle(); }
         else if (f !== (pendF ?? SP.frame())) codeStep(f);
       }
       v.currentTime = t;
       if (rsOn()) rsAt(t);   // (the review sound there too)
     },
-    get paused() { return mode === 'code' && SP ? !SP.isPlaying() : v.paused; },
+    get paused() {
+      if (mode !== 'code') return v.paused;
+      if (soundRepair?.rebuilding) return !soundRepair.play;
+      return !SP?.isPlaying();
+    },
     // (a play() overtaken by a pause() — a click on Lecture then on Pause, a move, a mode change — is the browser's
     // AbortError: the pause won, nothing failed; never said as « Lecture refusée », user report 07/11/2026)
-    play() { if (mode === 'code' && !SP) return;   // (the live preview not there yet: the hidden MP4 is never played in its place)
+    play() { if (mode === 'code' && soundRepair?.rebuilding) { soundRepair.play = true; fire('play'); return; }
+      if (mode === 'code' && !SP) return;   // (the live preview not there yet: the hidden MP4 is never played in its place)
       if (mode === 'code' && SP) { cancelCodePreparation(); v.pause(); cwSeq++; codeWaitEl.classList.remove('pend', 'pend-key', 'on'); const sp = SP; Promise.resolve(sp.play()).then(() => { if (SP === sp && rsOn()) { sp.mute?.(); rsAt(M.currentTime); rsPlay(); } }).catch((e) => { if (SP === sp && !aborted(e)) { RS.el?.pause(); setSave(`Lecture refusée : ${e.message}`, 'err'); fire('pause'); } }); } else { const r = v.play(); r?.catch?.((e) => { if (!aborted(e)) setSave(`Lecture refusée : ${e.message}`, 'err'); }); } },   // playing: no veil
-    pause() { if (mode === 'code' && SP) { SP.pause(); v.currentTime = (SP.frame() + 0.5) / FPS; } RS.el?.pause(); v.pause(); },
+    pause() { if (soundRepair?.rebuilding) { soundRepair.play = false; fire('pause'); }
+      if (mode === 'code' && SP) { SP.pause(); v.currentTime = (SP.frame() + 0.5) / FPS; } RS.el?.pause(); v.pause(); },
     get playbackRate() { return rate; },
     set playbackRate(r) { rate = r; v.playbackRate = r; SP?.setRate(r); if (RS.el) RS.el.playbackRate = r; },
     // (the volume moved: the sound is wanted — a mute of the preview's own, after a lag, taken back too: player/sound.ts)
     // (the review sound playing: the preview stays muted — its sound and this one together would be heard twice)
-    set volume(x) { vol = x; v.volume = x; v.muted = false; if (RS.el) { RS.el.volume = x; RS.el.muted = false; } SP?.setVolume(x); if (!rsOn()) SP?.restoreSound?.(); },
+    set volume(x) { vol = x; v.volume = x; v.muted = false; if (RS.el) { RS.el.volume = x; RS.el.muted = false; } SP?.setVolume(x); if (!rsOn()) SP?.unmute?.(); },
     get seeking() { return mode === 'code' ? false : v.seeking; },
     on(t, f) { bus.addEventListener(t, f); },
   };
@@ -68,9 +75,10 @@
   // validation de l'image qui restera affichée, avec ses offsets et sa caméra. Toute attente
   // est suivie d'une vérification de génération ; une erreur conserve la version visible.
   let codeLoad = null, codeFailedVer = null;
-  function loadCode({ fresh = false, frame = null } = {}) {
-    if (preparedCode?.parked?.()) return preparedCode.wake().then(() => loadCode({ fresh, frame }));
+  function loadCode({ fresh = false, frame = null, repair = null } = {}) {
+    if (preparedCode?.parked?.()) return preparedCode.wake().then(() => loadCode({ fresh, frame, repair }));
     if (preparedCode?.active()) return Promise.resolve(SP);
+    if (codeLoad?.repair && !repair) return codeLoad.promise;
     const ver = STATUS.code?.version ?? META?.code?.version ?? 0;
     // La génération zéro n’a aucun bundle publié : le premier statut ready
     // démarrera l’aperçu, sans iframe vouée à attendre son hello en vain.
@@ -82,11 +90,11 @@
     const old = SP, inPlace = !old, target = frame ?? (old ? old.frame() : (!META.render ? hashFrame() ?? curFrame() : curFrame()));
     const el = inPlace ? codeEl : document.createElement('iframe');
     if (!inPlace) { el.className = 'code-next'; el.title = codeEl.title || ''; for (const k of ['allow', 'allowfullscreen']) if (codeEl.hasAttribute(k)) el.setAttribute(k, codeEl.getAttribute(k)); codeEl.after(el); }
-    const job = { ver, frame: el, dropped: false, fresh };
+    const job = { ver, frame: el, dropped: false, repair };
     codeLoad = job; codeFailedVer = null;
     const valid = () => !job.dropped && codeLoad === job && SP === old &&
       (STATUS.code?.version ?? META?.code?.version ?? 0) === ver &&
-      (!old || (!old.isPlaying() && old.frame() === target && (mode === 'code' || modeWant === 'code')));
+      (!old || (!old.isPlaying() && (repair || old.frame() === target) && (mode === 'code' || modeWant === 'code')));
     const check = () => { if (!valid()) { const e = new Error('Préparation remplacée ou image déplacée'); e.stale = true; throw e; } };
     const deadline = (promise, ms, message) => new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -94,7 +102,7 @@
     });
     if (inPlace) $('#codeStatus').textContent = T('st.code.loading');
     else {
-      const base = fresh ? TN('st.sound.preparing') : TN('st.code.preparingOld'), t0 = Date.now();
+      const base = repair ? TN('st.sound.preparing') : TN('st.code.preparingOld'), t0 = Date.now();
       showCodeNote(base);
       job.tick = setInterval(() => { if (codeLoad !== job) return; if (!valid()) { cancelCodePreparation(); return; } showCodeNote(`${base} ${Math.round((Date.now() - t0) / 1000)} s`); }, 1000);
     }
@@ -103,15 +111,21 @@
       try {
         const sp = await deadline(rem.hello, 60000, 'L’aperçu ne démarre pas (60 secondes)'); check();
         if (!sp) throw new Error('Aperçu fermé avant sa préparation');
-        const f = Math.max(0, Math.min(sp.durationInFrames - 1, target));
+        // Pendant une restauration, l'ancienne image reste déplaçable. La candidate
+        // déjà chargée prépare la dernière position demandée avant l'échange.
+        const targetFrame = () => Math.max(0, Math.min(sp.durationInFrames - 1, repair ? old.frame() : target));
+        let f;
         const stagingBefore = staging, chosen = stSel?.id ?? null;
         const queued = plain(drafts().filter((n) => n.stage).map((n) => n.stage));
         const ids = new Set(queued.map((n) => n.id));
         const carry = plain(old?.stage?.list().filter((x) => !ids.has(x.id)) ?? []);
         const pose = old && stagingBefore && old.stage ? plain(await old.stage.freePose()) : null; check();
         const prepare = async () => {
-          const proof = await deadline(sp.prepare(f), 95000, 'L’image demandée n’est pas prête (95 secondes)'); check();
-          if (proof?.ready !== true || proof.frame !== f || sp.frame() !== f || sp.isBuffering?.() || !sp.frameReady()) throw new Error('L’image demandée n’a pas été validée');
+          do {
+            f = targetFrame();
+            const proof = await deadline(sp.prepare(f), 95000, 'L’image demandée n’est pas prête (95 secondes)'); check();
+            if (proof?.ready !== true || proof.frame !== f || sp.frame() !== f || sp.isBuffering?.() || !sp.frameReady()) throw new Error('L’image demandée n’a pas été validée');
+          } while (targetFrame() !== f);
         };
         await prepare(); check();
         // Les modifications de scène sont appliquées à la candidate capturée, jamais à un SP global tardif.
@@ -134,7 +148,7 @@
             const e = new Error('La caméra a changé pendant la préparation'); e.stale = true; throw e;
           }
         }
-        if (staging !== stagingBefore || (stSel?.id ?? null) !== chosen ||
+        if (targetFrame() !== f || staging !== stagingBefore || (stSel?.id ?? null) !== chosen ||
             JSON.stringify(old?.stage?.list().filter((x) => !ids.has(x.id)) ?? []) !== JSON.stringify(carry) ||
             JSON.stringify(drafts().filter((n) => n.stage).map((n) => n.stage)) !== JSON.stringify(queued)) {
           const e = new Error('La mise en scène a changé pendant la préparation'); e.stale = true; throw e;
@@ -154,9 +168,10 @@
         codeWait(false); stageSynced = new Set(queued.map((x) => x.id));
         if (stagingBefore && sp.stage) { stUnsub = sp.stage.on(onStageEvent); freeCamOn = !!pose; renderScene(); }
         showCodeNote(sp.durationInFrames !== FRAMES && FRAMES ? T('st.code.length', { a: sp.durationInFrames, b: FRAMES }) : '');
-        if (old && mode === 'code') setSave(job.fresh ? TN('st.sound.reloaded') : T('st.code.updated'), 'ok');
+        if (old && mode === 'code' && !repair) setSave(T('st.code.updated'), 'ok');
         showCodeStatus(); return sp;
       } catch (e) {
+        if (repair) { repair.retry = !!(e.stale || job.dropped); repair.error = e.message; }
         rem.api.dispose();
         // Une candidate périmée ne peut ni détruire la candidate suivante, ni afficher son erreur à sa place.
         if (el !== codeEl) el.remove();
@@ -194,13 +209,17 @@
       if (ev.type === 'resume') { RS.wait = false; if (rsOn() && !M.paused) { rsAt(M.currentTime); rsPlay(); } return; }
       if (mode !== 'code') return;
       // the sound of the preview cut by its Player after a lag of the PC, and given back by the preview (player/sound.ts)
-      if (ev.type === 'sound' && ev.state === 'dead') { soundDead(ev.why); return; }
-      if (ev.type === 'sound') { setSave(TN(ev.state === 'lost' ? 'st.sound.lost' : 'st.sound.back'), ev.state === 'lost' ? 'err' : 'ok'); return; }
+      if (ev.type === 'sound') { onSound(sp, ev); return; }
       if (ev.type === 'play' || ev.type === 'pause' || ev.type === 'seeked') fire(ev.type);
       if (ev.type === 'ended') fire('pause');
       if (RS.el && (ev.type === 'pause' || ev.type === 'ended')) RS.el.pause();
       if (rsOn() && (ev.type === 'play' || ev.type === 'seeked')) { rsAt(M.currentTime); rsPlay(); }
     });
+    // Une publication de code peut remplacer le Player entre le clic à l'arrêt
+    // et Lecture. Le nouveau Player reprend alors la vérification demandée.
+    if (soundRepair && !soundRepair.rebuilding && soundRepair.sp !== sp) {
+      soundRepair.sp = sp; requestSoundCheck(soundRepair);
+    }
   }
   let codeNote = '';
   const showCodeNote = (t) => { codeNote = t; showCodeStatus(); };
@@ -246,6 +265,7 @@
   // loaded in its place at the same image. Preparing the new one behind the frozen one could never work: both iframes
   // share the renderer process of the preview's origin, frozen with it (user report 31/10/2026: « Réessayer » did nothing).
   function hardReload(f, crash0 = null) {
+    soundRepair = null;
     const old = SP, at = Math.max(0, Math.min((old?.durationInFrames ?? FRAMES ?? 1) - 1, f ?? curFrame()));
     cancelCodePreparation();
     stUnsub?.(); stUnsub = null;
@@ -298,23 +318,74 @@
   // et impossible à réactiver sans F5 »): every sound path as at the start — nothing muted, the volume of the slider; the
   // live preview's Player unmuted (its own mute after a failed start of its sound, player/sound.ts); the MP4 loaded again
   // where it is (a new sound output: the one of before may have died with the sound device), playing if it was
-  // Un incident sonore est annoncé. Seule une demande explicite peut reconstruire l'aperçu :
-  // un contexte suspendu par le navigateur ne justifie pas de recharger une scène entière.
-  async function soundDead(why, asked = false) {
-    if (!asked) { setSave(TN('st.sound.gone'), 'err'); return null; }
-    M.pause();
-    window.__soundDead = (window.__soundDead ?? 0) + 1;   // (the tests: tests/sound-watch.mjs)
-    return loadCode({ fresh: true });
+  function onSound(sp, ev) {
+    if (rsOn() || preparedCode?.active() || soundRepair?.rebuilding) return;
+    if (ev.state === 'failed') {
+      if (soundRepair?.sp === sp) rebuildForSound(soundRepair);
+      return;
+    }
+    if (ev.state === 'back') {
+      if (ev.context !== 'running' || !(ev.clockAdvance > 0 && ev.mediaAdvance > 0)) return;
+      soundRepair = null;
+    }
+    if (['lost', 'dead', 'back', 'armed', 'checking', 'waiting', 'quiet'].includes(ev.state)) {
+      setSave(TN('st.sound.' + (ev.state === 'dead' ? 'gone' : ev.state)), ev.state === 'back' ? 'ok' : ['lost', 'dead'].includes(ev.state) ? 'err' : '');
+    }
+  }
+  async function requestSoundCheck(job) {
+    const sp = job.sp;
+    // La réponse accuse réception. Seul l'événement back porte la preuve.
+    const ack = await sp.restoreSound();
+    if (ack !== 'checking' && soundRepair === job && job.sp === sp) await rebuildForSound(job);
+  }
+  async function rebuildForSound(job) {
+    if (soundRepair !== job || job.rebuilding) return;
+    if (job.rebuilt) { soundRepair = null; setSave(TN('st.sound.gone'), 'err'); return; }
+    const old = job.sp, at = curFrame();
+    job.play = old.isPlaying(); job.rebuilding = job.rebuilt = true;
+    old.pause(); old.seek(at); // la position affichée fait foi, y compris si pause était en file derrière un gel
+    setSave(TN('st.sound.preparing'), '');
+    let sp;
+    do {
+      job.retry = false;
+      sp = await loadCode({ fresh: true, repair: job });
+      if (job !== soundRepair) return;
+      if (mode !== 'code' || preparedCode?.active()) { soundRepair = null; return; }
+      // Un changement de version ou de mise en scène nécessite une nouvelle
+      // candidate. La demande de son et le dernier choix Lecture/Pause persistent.
+    } while (job.retry && sp === old && !rsOn());
+    job.rebuilding = false;
+    if (!sp || sp === old || SP !== sp) {
+      soundRepair = null; showCodeNote(''); setSave([TN('st.sound.gone'), job.error].filter(Boolean).join(' · '), 'err'); fire('pause'); return;
+    }
+    job.sp = sp;
+    if (job.play) M.play();
+    if (rsOn() || sp.hyperframes) { soundRepair = null; setSave(TN('st.sound.previewReady'), ''); return; }
+    await requestSoundCheck(job);
   }
   async function restoreSound() {
     v.muted = false; v.volume = vol;
+    if (mode === 'code' && !SP) {
+      setSave(TN('st.sound.preparing'), '');
+      const sp = await (codeLoading ?? loadCode());
+      if (mode !== 'code') return;
+      if (!sp || SP !== sp) { setSave(TN('st.sound.gone'), 'err'); return; }
+    }
     if (mode === 'code' && SP && RS.el) {
       const src = RS.el.src, t = M.currentTime, playing = !M.paused; RS.el.pause();
       const el = new Audio(); el.preload = 'auto'; el.src = src; el.volume = vol; el.playbackRate = rate; el.preservesPitch = true;
       RS.el.removeAttribute('src'); RS.el.load(); RS.el = el; SP.mute?.(); rsAt(t); if (playing) rsPlay();
       setSave(TN('st.rs.reloaded'), 'ok'); return;
     }
-    if (mode === 'code' && SP) { SP.setVolume(vol); await SP.restoreSound?.(); setSave(TN('st.sound.reloading'), ''); await soundDead('asked', true); return; }
+    if (mode === 'code' && SP) {
+      if (soundRepair?.rebuilding) return;
+      if (!vol) { setSave(TN('st.sound.zero'), ''); return; }
+      const job = soundRepair = { sp: SP, rebuilt: false, rebuilding: false };
+      SP.setVolume(vol); setSave(TN('st.sound.checking'), '');
+      if (SP.hyperframes) { SP.unmute?.(); await rebuildForSound(job); }
+      else await requestSoundCheck(job);
+      return;
+    }
     else if (v.currentSrc && !wasHeld && v.readyState >= 1) {
       const t = v.currentTime, playing = !v.paused, src = v.currentSrc;
       v.addEventListener('loadedmetadata', () => { v.currentTime = t; v.volume = vol; v.muted = false; if (playing) v.play().catch(() => {}); }, { once: true });
@@ -331,7 +402,7 @@
       return;
     }
     const request = ++modeRequest;
-    if (m !== 'code') cancelCodePreparation();
+    if (m !== 'code') { soundRepair = null; cancelCodePreparation(); }
     if (modeWant !== m) modeWasPlaying = null;
     modeWant = m;
     // Le MP4 peut continuer jusqu’à la première publication. onStatus reprendra
