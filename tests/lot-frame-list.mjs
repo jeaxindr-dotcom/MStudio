@@ -35,6 +35,7 @@ function fixture(t, version) {
     },
     async renderFrames(opts) {
       assert.equal(opts.concurrency, 1);
+      assert.equal(opts.muted, true, 'Un lot d’images garde les pistes sonores désactivées comme renderStill');
       assert.equal(opts.jpegQuality, 90);
       assert.equal(opts.outputDir, null);
       assert.equal(opts.frameRange, undefined);
