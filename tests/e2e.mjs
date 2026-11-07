@@ -79,6 +79,7 @@ try {
   const md = fs.readFileSync(path.join(REVUE, 'lots', String(lot).padStart(3, '0') + '.md'), 'utf8');
   check(/a entouré \(dessin en 2 traits\)/.test(md) && /a pointé \(/.test(md), 'lot .md: gestures in words');
   check(/Actor\[key="hazel"/.test(md), 'lot .md: Hazel named');
+  await p.until(`document.querySelector('#lots [data-lot="${lot}"] [data-capture-status="ready"]')`, 120000);
   const dir = path.join(REVUE, 'lots', String(lot).padStart(3, '0'));
   check(fs.existsSync(path.join(dir, '1-marque.jpg')) && fs.existsSync(path.join(dir, '1-zoom.jpg')), 'lot images: frame + marks + zoom');
   await p.eval(`document.querySelector('#mClose').click(); return 1`);

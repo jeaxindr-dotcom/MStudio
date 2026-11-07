@@ -9,7 +9,7 @@
     const nq = $('#nQueue'); nq.textContent = d.length; nq.classList.toggle('hot', d.length > 0); nq.classList.toggle('zero', !d.length);
     const empty = d.filter((n) => !n.text.trim() && !n.mark && !n.images?.length).length;
     $('#qsend').disabled = !d.length || !!empty || sending;
-    $('#qsend').innerHTML = sending ? T('st.send.preparing') : `${ic('send')}${d.length > 1 ? T('st.send.many', { n: d.length }) : d.length ? T('st.send.one') : T('st.send.zero')}`;
+    $('#qsend').innerHTML = sending ? T('st.send.sending') : `${ic('send')}${d.length > 1 ? T('st.send.many', { n: d.length }) : d.length ? T('st.send.one') : T('st.send.zero')}`;
     $('#qhint').textContent = empty ? T('st.send.empty', { n: empty }) : (STATUS.agent?.watching && d.length ? T('st.send.watching', { name: agentName() }) : '');
   }
   async function sendQueue() {
@@ -108,6 +108,14 @@
     if (c === 'taken') return ['taken', T('st.lot.taken')];
     return ['', T('st.lot.waiting')];
   };
+  function captureStatusHtml(c) {
+    if (!c || !['pending', 'ready', 'error'].includes(c.status)) return '';
+    const label = esc(T(`st.lot.captures.${c.status}`, { done: c.done, total: c.total }));
+    if (c.status === 'error' && c.error) {
+      return `<details class="msg2" data-capture-status="error"><summary>${label}</summary>${esc(c.error)}</details>`;
+    }
+    return `<div class="msg2" data-capture-status="${c.status}">${label}</div>`;
+  }
   // « Annuler cette correction » / « Rétablir » of a batch (the card's buttons, and Edit › Undo / Redo of the menu bar)
   async function stepLot(L, verb, resEl) {
     if (verb === 'undo' && !confirm(T('st.lot.undoConfirm', { lot: L.lot }))) return null;
@@ -142,9 +150,10 @@
         el.querySelector('.cp').onclick = () => copy(L.line);
         box.appendChild(el); continue;
       }
-      const [cls, txt] = lotState(L), el = document.createElement('div'); el.className = 'lot';
+      const [cls, txt] = lotState(L), el = document.createElement('div'); el.className = 'lot'; el.dataset.lot = L.lot;
       const canUndo = L.run?.finished && L.run.state !== 'undone', canRedo = L.run?.state === 'undone';
       el.innerHTML = `<div class="lh"><b>${T('st.lot.title', { lot: L.lot })}</b><span class="muted" style="font-size:12px">${T('st.lot.sub', { n: L.ids.length, at: esc(hhmm(L.sentAt)) })}</span><span class="st ${cls}"><span class="dot"></span>${txt}</span></div>
+        ${captureStatusHtml(L.captureState)}
         ${L.claude?.message ? `<div class="msg2">${esc(L.claude.message)}</div>` : ''}
         ${L.run?.files?.length ? `<div class="msg2">${T('st.lot.files', { files: esc(L.run.files.join(', ')) })}</div>` : ''}
         <div class="msg2 res"></div>
