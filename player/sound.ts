@@ -8,7 +8,10 @@ type ContextBinding = { bindContext: (context: AudioContext | null, wakeTags?: (
 type BufferingPlayer = PlayerRef & { isBuffering?: () => boolean };
 export function SoundContext({ sound }: { sound: ContextBinding }) {
   const shared = useContext(Internals.SharedAudioContext);
-  const { audioAndVideoTags: tags, isBuffering } = useContext(Internals.SetTimelineContext) ?? {};
+  // Ce registre du Player existe aussi en 4.0.500. Les premiers 4.0.5xx
+  // n'exposent ni les balises ni isBuffering dans SetTimelineContext.
+  const tags = useContext(Internals.TimelineContext)?.audioAndVideoTags;
+  const { isBuffering } = useContext(Internals.SetTimelineContext) as { isBuffering?: () => boolean };
   useEffect(() => sound.bindContext(shared?.audioContext ?? null, () => {
     tags?.current?.forEach(tag => tag.play('Rétablir le son dans Coulisses'));
   }, isBuffering), [sound, shared?.audioContext, tags, isBuffering]);

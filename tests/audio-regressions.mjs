@@ -188,6 +188,18 @@ function makeSound() {
   check(s.sound.contexts().length === 0 && exact.state === 'running', 'le nettoyage de l’effet détache sans fermer un contexte que React peut réutiliser');
 }
 {
+  // Au début des 4.0.5xx, seule TimelineContext expose le registre des pistes.
+  const s = makeSound(); let plays = 0;
+  s.context.Internals.TimelineContext = {}; s.context.Internals.SetTimelineContext = {};
+  s.context.useContext = key => {
+    if (key === s.context.Internals.SharedAudioContext) return {audioContext: s.c};
+    if (key === s.context.Internals.TimelineContext) return {audioAndVideoTags: {current: [{play: () => plays++}]}};
+    return {};
+  };
+  s.context.SoundContext({sound: s.sound}); s.sound.restore(); s.clock(120);
+  check(plays > 0, 'le réveil atteint aussi les balises enregistrées dans TimelineContext en 4.0.500');
+}
+{
   const s = makeSound(), other = new s.win.AudioContext();
   await s.sound.dispose?.();
   check(s.c.state === 'closed' && other.state === 'running' && s.sound.contexts().length === 0, 'la destruction définitive ferme seulement le contexte lié au Player');
