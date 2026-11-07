@@ -223,9 +223,10 @@ try {
   const tk = cli('take', REVUE, '1'), rp = cli('reply', REVUE, id, 'Slowed the title down', '--status', 'done'), dn = cli('done', REVUE, '1', 'title slowed down'), stt = cli('status', REVUE);
   check(/^batch 1 taken: 1 note\(s\) "The agent is fixing" in the tool$/.test(tk.out) && new RegExp(`^${id}: done, 0 image\\(s\\), 1 message\\(s\\)$`).test(rp.out)
     && /^batch 1 closed \(done\) · no snapshot: cannot be undone$/.test(dn.out) && /session watching: no/.test(stt.out) && /batch 1 · 1 edit\(s\) · .* · agent: done/.test(stt.out), 'take / reply / done / status: in English');
-  await sleep(3500);
-  await p.eval(`document.querySelector('button[data-tab=lots]').click(); return 1`); await sleep(600);
-  check(/Batch 1/.test(await ev(`return document.querySelector('#lots').innerText`)) && /Fixed by the agent/.test(await ev(`return document.querySelector('#lots').innerText`)), '« Batches »: « Batch 1 · Fixed by the agent »');
+  await p.eval(`document.querySelector('button[data-tab=lots]').click(); return 1`);
+  await until(`document.querySelector('#lots [data-lot="1"] .st.done')`);
+  const batchText = await ev(`return document.querySelector('#lots [data-lot="1"]').innerText`);
+  check(/Batch 1/.test(batchText) && /Fixed by the agent/.test(batchText), '« Batches »: « Batch 1 · Fixed by the agent »');
   await scan('studio, tab Batches after the fix');
   await p.eval(`document.querySelector('#helpBtn').click(); return 1`); await sleep(200);
   check(/ON THE IMAGE/i.test(await ev(`return document.querySelector('.mb-dlg.sc-dlg')?.innerText ?? ''`)) && /Undo: one step back/.test(await ev(`return document.querySelector('.mb-dlg.sc-dlg')?.innerText ?? ''`)), 'the keyboard shortcuts window, in English');

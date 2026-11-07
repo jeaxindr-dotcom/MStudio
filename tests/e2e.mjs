@@ -106,13 +106,18 @@ try {
   check(await p.eval(`return /Afficher dans l'Explorateur/.test(document.querySelector('#renderCard')?.innerText ?? '') && !!document.querySelector('#rcReveal')`), '« Envois » › Rendu: « Afficher dans l\'Explorateur » (the video, selected in its folder)');
   await p.shot(path.join(shots, 'e2e-5-lots.png'));
   // undo from the page (confirm() auto-accepted)
-  await p.eval(`window.confirm = () => true; [...document.querySelectorAll('#lots .un')][0].click(); return 1`); await sleep(1200);
+  const card = `#lots [data-lot="${lot}"]`;
+  await p.until(`document.querySelector('${card} .un')`);
+  await p.eval(`window.confirm = () => true; document.querySelector('${card} .un').click(); return 1`);
+  // Le bouton suivant apparaît après la réponse du serveur et le rafraîchissement de la carte.
+  await p.until(`document.querySelector('${card} .re')`);
   check(fs.readFileSync(dummy, 'utf8') === 'avant\n', 'undo: the file is back to its state before the batch');
-  await sleep(3500);
-  await p.eval(`[...document.querySelectorAll('#lots .re')][0]?.click(); return 1`); await sleep(1200);
+  await p.eval(`document.querySelector('${card} .re').click(); return 1`);
+  await p.until(`document.querySelector('${card} .un')`);
   check(fs.readFileSync(dummy, 'utf8') === 'après la correction\n', 'redo: the correction is back');
-  fs.writeFileSync(dummy, 'modifié à la main\n'); await sleep(3500);
-  await p.eval(`[...document.querySelectorAll('#lots .un')][0]?.click(); return 1`); await sleep(1200);
+  fs.writeFileSync(dummy, 'modifié à la main\n');
+  await p.eval(`document.querySelector('${card} .un').click(); return 1`);
+  await p.until(`/modifié depuis la correction/.test(document.querySelector('${card} .res').textContent)`);
   check(fs.readFileSync(dummy, 'utf8') === 'modifié à la main\n' && /modifié depuis la correction/.test(await p.eval(`return document.querySelector('#lots').innerText`)), 'undo refused when the file changed since');
   fs.rmSync(dummy, { force: true });
 
