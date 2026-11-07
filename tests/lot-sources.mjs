@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { freezeLotSources, captureProject, checkLotSources } from '../lib/lot-sources.mjs';
+import { codeFrameList } from '../lib/frames.mjs';
+import { createLot, readLot } from '../lib/lots.mjs';
 
 const cache = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.cache/tests-lot-sources');
 fs.mkdirSync(cache, { recursive: true });
@@ -18,6 +20,72 @@ function fixture() {
   const p = { kind: 'remotion', remotionDir: root, remotion: { projet: root, entree: entry, composition: 'Test', props }, EP: root, REVUE: path.join(root, 'revue'), pickVideo: () => null };
   return { p, base, root, dir: path.join(base, 'prive'), file, entry, props };
 }
+
+test('une entrée déclarée via une jonction retrouve la copie privée du même fichier', async () => {
+  const { p, entry, base, dir } = fixture();
+  const alias = path.join(base, 'autre');
+  fs.symlinkSync(path.dirname(entry), alias, 'junction');
+  p.remotion.entree = path.join(alias, path.basename(entry));
+  const sources = await freezeLotSources(p, {code: true, dir});
+  const frozen = captureProject(p, sources);
+  assert.equal(frozen.remotion.entree, path.join(dir, 'projet', 'src', 'index.ts'));
+  fs.writeFileSync(entry, 'nouveau');
+  assert.equal(fs.readFileSync(frozen.remotion.entree, 'utf8'), 'version A');
+  assert.equal(frozen.lotPrebuiltBundle, undefined);
+});
+
+function externalProject() {
+  const f = fixture(), outside = path.join(f.base, 'exterieur');
+  fs.mkdirSync(outside);
+  f.p.remotion.entree = path.join(outside, 'entree.js');
+  fs.writeFileSync(f.entry, 'import "./couleurs.js"');
+  fs.linkSync(f.entry, f.p.remotion.entree);
+  f.file('src/couleurs.js', 'rouge');
+  fs.writeFileSync(path.join(outside, 'couleurs.js'), 'bleu');
+  // Une copie récursive de cet ancêtre échouerait sur le cycle.
+  fs.symlinkSync(outside, path.join(outside, 'cycle'), 'junction');
+  f.file('node_modules/@remotion/bundler/package.json', '{"main":"index.cjs"}');
+  f.file('node_modules/@remotion/bundler/index.cjs', `
+    const fs = require('node:fs'), path = require('node:path');
+    exports.bundle = async (o) => {
+      if (o.enableCaching || o.symlinkPublicDir || fs.readdirSync(o.publicDir).length) throw Error('Cache ou public non isolé.');
+      const graph = fs.readFileSync(path.join(path.dirname(o.entryPoint), 'couleurs.js'), 'utf8');
+      fs.mkdirSync(o.outDir, {recursive: true});
+      fs.writeFileSync(path.join(o.outDir, 'index.html'), graph, {flag:'wx'});
+    };`);
+  f.file('node_modules/@remotion/renderer/package.json', '{"main":"index.cjs","version":"4.0.535"}');
+  f.file('node_modules/@remotion/renderer/index.cjs', `
+    const fs = require('node:fs'), path = require('node:path');
+    exports.openBrowser = async () => ({close: async () => {}});
+    exports.selectComposition = async () => ({id:'Test', durationInFrames:2});
+    exports.renderFrames = async o => {
+      const page = fs.readFileSync(path.join(o.serveUrl, 'index.html'), 'utf8');
+      const publicFile = fs.readFileSync(path.join(o.serveUrl, 'public', 'mot.txt'), 'utf8');
+      await o.onFrameBuffer(Buffer.from(page + ' ' + publicFile), o.frames[0]);
+    };`);
+  f.file('public/mot.txt', 'initial');
+  return { ...f, outside };
+}
+test('la compilation d’une vraie entrée externe et de ses imports précède le rendu et résiste à leur suppression', async () => {
+  const {p, dir, outside, file} = externalProject();
+  const sources = await freezeLotSources(p, {code: true, dir});
+  fs.unlinkSync(p.remotion.entree); fs.unlinkSync(path.join(outside, 'couleurs.js')); file('public/mot.txt', 'modifié');
+  const captures = [];
+  const frozen = captureProject(p, JSON.parse(JSON.stringify(sources)));
+  await codeFrameList(frozen, [1], {cacheKey: 'lot-externe', onFrame: (_n, b) => captures.push(b.toString())});
+  assert.deepEqual(captures, ['bleu initial']);
+});
+test('un échec de compilation externe livre les notes et le diagnostic', async () => {
+  const {p, root, outside} = externalProject();
+  Object.assign(p, {title:'Essai', ep:'Essai', target:root, NOTES:path.join(p.REVUE, 'notes.json'), LOTS:path.join(p.REVUE, 'lots'), REPLIES:path.join(p.REVUE, 'replies.json')});
+  fs.mkdirSync(p.REVUE, {recursive: true});
+  fs.writeFileSync(p.NOTES, JSON.stringify({notes:[{id:'n', frame:1, text:'À corriger', source:'code'}]}));
+  fs.unlinkSync(path.join(outside, 'couleurs.js'));
+  const r = await createLot(p, {ids:['n']});
+  const L = readLot(p, r.lot);
+  assert.equal(L.edits[0].text, 'À corriger'); assert.equal(L.captureState.status, 'error');
+  assert.match(L.captureState.error, /couleurs\.js/);
+});
 
 test('le code, les imports hors de src, les props et les données Brambleshire restent ceux de l’envoi après reprise', async () => {
   for (const kind of ['remotion', 'brambleshire']) {
