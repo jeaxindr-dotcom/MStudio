@@ -101,12 +101,19 @@ try {
   assert.equal(await adresse(), ancien);
   assert.ok(await p.eval('return !__preview.isPlaying() && document.querySelector("#v").paused && !!document.querySelector(".code-next")'));
   passe('Déplacement et clics Lecture puis Rétablir pendant la préparation, ancien lecteur arrêté');
-  await p.eval(`window.imagesAdoptees = []; const ancien = window.__preview;
-    window.addEventListener('message', (e) => { if (!imagesAdoptees.length && window.__preview !== ancien) imagesAdoptees.push(__preview.frame()); }, false);
+  const cible = await p.eval('return document.querySelector(".code-next").src');
+  await p.eval(`window.preparations = []; window.departs = []; const candidate = document.querySelector('.code-next').contentWindow;
+    window.addEventListener('message', e => {
+      if (e.source !== candidate) return;
+      if (e.data.value?.ready === true) preparations.push(e.data.value.frame);
+      if (e.data.ev?.type === 'play') departs.push(e.data.ev.frame);
+    });
     liberer()`);
   await p.until('document.querySelector("#code").src !== ' + JSON.stringify(ancien), 30000);
   await attendreSon();
-  assert.equal(await p.eval('return imagesAdoptees[0]'), 52);
+  assert.equal(await adresse(), cible);
+  assert.equal(await p.eval('return preparations.at(-1)'), 52);
+  assert.equal(await p.eval('return departs[0]'), 52);
   assert.equal(await p.eval('return document.querySelectorAll(\'iframe[src*="player.html"]\').length'), 1);
   passe('Adoption à l’image 52 et son vérifié sur la Lecture mise en attente');
   await arret(40);
@@ -131,7 +138,7 @@ try {
     console.error('Événements du pont', JSON.stringify(await p.eval('return window.suiviSon')));
     const {dans, adresse} = sonDuBac(p);
     console.error('Aperçu affiché', await adresse(), await dans(`return {
-      image: StudioPlayer.frame(), lecture: StudioPlayer.isPlaying(), muet: StudioPlayer.isMuted(), contexte: StudioPlayer.soundLost?.(),
+      image: StudioPlayer.frame(), lecture: StudioPlayer.isPlaying(), muet: StudioPlayer.isMuted(), perte: StudioPlayer.soundLost?.(),
       horloges: __coulissesAudio.map(c => [c.state,c.currentTime]), pistes: [...document.querySelectorAll('audio')].filter(a => a.src && !a.src.startsWith('data:')).map(a => [a.currentTime,a.paused,a.muted,a.readyState])}`));
   }
   process.exitCode = 1;
