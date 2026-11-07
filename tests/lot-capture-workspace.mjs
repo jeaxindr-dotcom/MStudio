@@ -58,6 +58,19 @@ if (process.argv[2] === 'reprendre') {
     }
     return {p, make, created};
   }
+
+  test('Le MP4 remplacé pendant l’envoi ne devient pas la référence du lot précédent', async t => {
+    const {p, created} = fixture(t), id = randomUUID();
+    const film = path.join(p.REVUE, 'nouveau.mp4');
+    fs.writeFileSync(film, 'nouvelle version');
+    p.pickVideo = () => film;
+    const work = captureWorkspace(id);
+    created.push(work);
+    await prepareCaptures(p, {lot:1, captureState:{id}, render:{name:'ancien.mp4', size:123, mtime:'2026-01-01'},
+      edits:[{k:1, source:'video', frame:1}]}, {});
+    const sources = JSON.parse(fs.readFileSync(path.join(work, 'sources.json')));
+    assert.ok(sources.errors.video, 'La capture serait faussement rattachée à ancien.mp4');
+  });
   function deadPid() {
     const child = spawnSync(process.execPath, ['-e', ''], {windowsHide: true});
     assert.equal(child.status, 0); return child.pid;
