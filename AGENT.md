@@ -20,6 +20,8 @@ Le plus simple est de reprendre telles quelles les commandes complètes écrites
 
 Les deux façons peuvent arriver pour le même lot. `take` refuse un lot déjà pris : dans ce cas, ne pas le traiter deux fois.
 
+Si la demande indique que les images sont en préparation, lance la commande `CLI images E03 <lot>` indiquée dans le lot. Tu peux prendre le lot et lire les notes pendant ce temps. La commande affiche les chemins de chaque note au fur et à mesure de leur publication, puis le chemin du Markdown actualisé. Regarde les images avant de corriger le projet. Si une capture échoue, la commande signale la note concernée et le motif disponible. Avec `--timeout <secondes>`, relance la commande si l’attente expire.
+
 ### Une réponse à une note déjà envoyée
 
 `wait` transmet le texte, le contexte de la note, son ancien lot et les chemins des images jointes. Il indique aussi un fichier complet dans `revue/user-reply-deliveries/` et une commande `ack-replies`. Lis ce fichier et regarde les images avant les nouveaux lots, puis exécute la commande d'accusé affichée. Les livraisons sont bornées : relance `wait` pour recevoir la suite éventuelle. N'appelle pas `take` sur un ancien lot terminé : réponds sur l'identifiant de la note avec `reply`, en conservant les instantanés et vérifications habituels avant toute nouvelle correction. Si une réponse invalide une correction précédente, explique ce que tu reprends. Si la note a été retirée, signale ce retrait au lieu de la recréer ou d'appliquer aveuglément la demande archivée.

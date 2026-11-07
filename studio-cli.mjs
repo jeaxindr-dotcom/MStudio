@@ -4,6 +4,7 @@
 //   wait     <ep>                      attend un lot ou une réponse utilisateur, les imprime et sort (en arrière-plan :
 //                                      its exit wakes the session); while waiting, the tool shows « Claude surveille »
 //   take     <ep> <lot>                the tool shows « l'agent corrige » on the batch and its notes
+//   images   <ep> <lot> [--timeout s]  suit les captures de ce lot jusqu'à leur livraison
 //   snapshot <ep> <lot> <file…>        copy the files BEFORE changing them (« Annuler cette correction »)
 //   frame    <ep> <frame> [--source code|video] [--out f.jpg] [--width w]   one image (the eyes)
 //   sheet    <ep> <note id> [--before video|code] [--after code|video]      strips before / after
@@ -127,8 +128,47 @@ const rel = (f) => path.relative(P.REVUE, f).split(path.sep).join('/');
 const log = (m) => console.error(`… ${m}`);
 const AG = agentById(flag('--agent')) ?? detectAgent();   // who runs these commands: shown in the tool
 
+async function followLotImages(n, seconds) {
+  if (!Number.isSafeInteger(n) || n < 1 || !Number.isFinite(seconds) || seconds < 0) throw new Error(t('cli.imagesUsage'));
+  const deadline = seconds ? Date.now() + seconds * 1000 : Infinity;
+  const published = new Set();
+  for (;;) {
+    const lot = readJsonStrict(lotFile(P, n), null);
+    if (!lot) throw new Error(t('cli.noLot', { n }));
+    const state = lot.captureState, lines = [];
+    let incomplete = false;
+    const report = (line) => {
+      if (!published.has(line)) { published.add(line); lines.push(line); }
+    };
+    for (const edit of lot.edits) {
+      const c = edit.captures ?? {}, prefix = `#${edit.k} (${edit.id}) · `;
+      for (const [field, label] of [['image', 'lot.md.image'], ['marque', 'lot.md.marked'], ['zoom', 'lot.md.zoom'], ['fin', 'lot.md.last']]) {
+        const file = c[field];
+        if (!file) continue;
+        if (fs.existsSync(file)) {
+          const rect = c.zoomRect ?? {};
+          report(prefix + t(label, { file, x: rect.x, y: rect.y, w: rect.width, h: rect.height }));
+        } else { incomplete = true; report(prefix + t('cli.imagesMissing', { file })); }
+      }
+      if (c.error) { incomplete = true; report(prefix + c.error); }
+    }
+    if (lines.length) await writeDelivered(process.stdout, lines.join('\n') + '\n');
+    // Les anciens lots ont été publiés après leurs captures et n'ont aucun état de préparation.
+    if (!state || state.status !== 'pending') {
+      if (incomplete || (state && state.status !== 'ready')) throw new Error(t('cli.imagesFailed', { n, detail: state?.error || lotFile(P, n, 'md') }));
+      await writeDelivered(process.stdout, t('cli.imagesReady', { n, md: lotFile(P, n, 'md') }) + '\n');
+      return;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(t('cli.imagesTimeout', { n, done: state.done, total: state.total }));
+    await new Promise((resolve) => setTimeout(resolve, Math.min(400, remaining)));
+  }
+}
+
 async function main() {
   switch (cmd) {
+    case 'images':
+      return followLotImages(Number(rest[0]), Number(flag('--timeout', flags['--timeout'] ? NaN : 0)));
     case 'wait': {
       const beat = (waiting, lastLot) => writeJson(P.AGENT, { pid: process.pid, since, beat: nowIso(), waiting, lastLot: lastLot ?? null, agent: AG ? { id: AG.id, name: AG.name } : null });
       const since = nowIso(), limit = +(flag('--timeout', 0)) * 1000, t0 = Date.now();
