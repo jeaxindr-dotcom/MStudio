@@ -34,7 +34,13 @@ try {
   // Installer la barrière AVANT le pont de la page, y compris sur les Chromium
   // qui livrent message à la fenêtre dans l'ordre d'inscription.
   await p.send('Page.addScriptToEvaluateOnNewDocument', {source: `
+    window.suiviSon = [];
     window.addEventListener('message', e => {
+      const d = e.data;
+      if (d?.coulissesPreview && (d.ev && ['sound','play','pause','waiting','resume','ended'].includes(d.ev.type) || d.hello)) {
+        suiviSon.push({t: Math.round(performance.now()), ev: d.ev ?? 'hello', candidate: e.source === document.querySelector('.code-next')?.contentWindow});
+        if (suiviSon.length > 32) suiviSon.shift();
+      }
       if (!window.retenirCandidate || e.source !== document.querySelector('.code-next')?.contentWindow) return;
       if (e.data?.value?.ready !== true) return;
       e.stopImmediatePropagation();
@@ -119,6 +125,16 @@ try {
   await p.until('document.querySelector("#code").src === ' + JSON.stringify(candidate) + ' && /Toujours pas de son/.test(document.querySelector("#save").textContent)');
   assert.ok(await p.eval('return !__preview.isPlaying() && !annonces.some(t => /rétabli/i.test(t)) && !document.querySelector(".code-next")'));
   passe('Panne persistante dans la nouvelle iframe annoncée, Pause respectée et aucun faux succès');
-} catch (e) { console.error('  ✗', e.stack, journal.slice(-600)); process.exitCode = 1; }
+} catch (e) {
+  console.error('  ✗', e.stack, journal.slice(-600));
+  if (p) {
+    console.error('Événements du pont', JSON.stringify(await p.eval('return window.suiviSon')));
+    const {dans, adresse} = sonDuBac(p);
+    console.error('Aperçu affiché', await adresse(), await dans(`return {
+      image: StudioPlayer.frame(), lecture: StudioPlayer.isPlaying(), muet: StudioPlayer.isMuted(), contexte: StudioPlayer.soundLost?.(),
+      horloges: __coulissesAudio.map(c => [c.state,c.currentTime]), pistes: [...document.querySelectorAll('audio')].filter(a => a.src && !a.src.startsWith('data:')).map(a => [a.currentTime,a.paused,a.muted,a.readyState])}`));
+  }
+  process.exitCode = 1;
+}
 finally { await p?.close(); st.kill(); }
 console.log('\n' + ok + ' ok, ' + (process.exitCode || 0) + ' ko');

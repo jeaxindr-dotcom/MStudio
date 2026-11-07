@@ -37,7 +37,8 @@ export function createSound(emit: (type: string, extra?: Record<string, unknown>
   let lost = false, explicit = false, delay = 1000, fails: number[] = [], deadAt = -Infinity;
   let retry: ReturnType<typeof setTimeout> | null = null, probe: ReturnType<typeof setTimeout> | null = null;
   let since = 0, lastT = -1, lastW = 0, bad = 0, notice = '';
-  type Sample = { at: number; clock: number; positions: Map<HTMLMediaElement, { src: string; time: number }> };
+  type TrackSample = { src: string; time: number; at: number; ready: boolean; playing: boolean; retried: boolean };
+  type Sample = { at: number; clock: number; positions: Map<HTMLMediaElement, TrackSample> };
   let sample: Sample | null = null;
 
   const clearRetry = () => { if (retry !== null) clearTimeout(retry); retry = null; };
@@ -82,15 +83,26 @@ export function createSound(emit: (type: string, extra?: Record<string, unknown>
     }
     const now = performance.now(), clock = c?.currentTime ?? 0;
     if (!sample) sample = { at: now, clock, positions: new Map() };
-    if (explicit && notice !== 'quiet') tell('checking');
     if (wakeMedia && !r.isMuted()) { wakeMedia = false; wakeTags?.(); }
     const media = mediaWithSound().filter(el => !el.muted && el.volume > 0);
-    let mediaAdvance = 0;
+    let mediaAdvance = 0, retryMedia = false, failedMedia = false, readyTracks = 0;
+    for (const el of sample.positions.keys()) if (!media.includes(el)) sample.positions.delete(el);
     for (const el of media) {
+      const ready = el.readyState >= 2 && !el.seeking, playing = ready && !el.paused;
+      if (ready) readyTracks++;
       const start = sample.positions.get(el);
-      if (!start || start.src !== el.currentSrc) sample.positions.set(el, { src: el.currentSrc, time: el.currentTime });
-      else if (!el.paused && !el.seeking) mediaAdvance = Math.max(mediaAdvance, el.currentTime - start.time);
+      if (!start || start.src !== el.currentSrc || start.ready !== ready || start.playing !== playing) {
+        sample.positions.set(el, { src: el.currentSrc, time: el.currentTime, at: now, ready, playing, retried: false });
+        continue;
+      }
+      if (playing) mediaAdvance = Math.max(mediaAdvance, el.currentTime - start.time);
+      const age = now - start.at;
+      if (ready && !playing && !start.retried && age >= 250) { start.retried = true; retryMedia = true; }
+      // Une recherche de position ou un nouveau média a son propre départ.
+      // Le délai de décodage ne compte pas comme du temps de lecture muette.
+      if (el.error || age >= (ready ? 2200 : 30000)) failedMedia = true;
     }
+    if (retryMedia && !r.isMuted()) wakeTags?.();
     const elapsed = now - sample.at;
     const clockOK = c?.state === 'running' && clock - sample.clock >= 0.3 * elapsed / 1000;
     if (elapsed >= 100 && clockOK && !r.isMuted() && mediaAdvance > 0.025) {
@@ -100,13 +112,11 @@ export function createSound(emit: (type: string, extra?: Record<string, unknown>
     }
     // Un passage sans piste audible ne justifie jamais de reconstruire toute la scène.
     // Une balise Web Audio peut publier son temps HTML par pas de plus d'une seconde.
-    if (elapsed >= 2200) {
-      if (explicit && (!clockOK || r.isMuted() || media.length > 0)) {
-        dead(!clockOK ? 'clock' : 'media'); return;
-      }
-      if (explicit) tell('quiet');
-      sample = null;
+    if (explicit && (failedMedia || elapsed >= 2200 && (!clockOK || r.isMuted()))) {
+      dead(!clockOK ? 'clock' : 'media'); return;
     }
+    if (explicit) tell(media.length ? (readyTracks ? 'checking' : 'waiting') : 'quiet');
+    if (elapsed >= 2200) { sample.at = now; sample.clock = clock; }
     schedule(notice === 'quiet' ? 500 : 120);
   }
   const onMute = (e: { detail: { isMuted: boolean } }) => {
@@ -119,7 +129,7 @@ export function createSound(emit: (type: string, extra?: Record<string, unknown>
       clearRetry();
       retry = setTimeout(() => { retry = null; if (cur === r && r.isMuted() && !wantedMute) r.unmute(); }, delay);
       delay = Math.min(10000, delay * 2);
-    } else { wake(); schedule(0); }
+    } else { wakeMedia = explicit || lost; wake(); schedule(0); }
   };
   const watch = () => {
     schedule(0);
@@ -132,7 +142,7 @@ export function createSound(emit: (type: string, extra?: Record<string, unknown>
     lastT = t; lastW = now; bad = ok ? 0 : bad + 1;
     if (bad >= 5) dead(c.state === 'running' ? 'stalled' : c.state);
   };
-  const onPlay = () => { resetWatch(); wake(); schedule(0); };
+  const onPlay = () => { resetWatch(); wakeMedia = explicit || lost; wake(); schedule(0); };
   const onPause = () => { clearProbe(); schedule(0); };
   const onWait = () => { buffering = true; resetWatch(); onPause(); };
   const onGo = () => { buffering = false; onPlay(); };

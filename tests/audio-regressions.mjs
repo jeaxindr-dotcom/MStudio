@@ -192,7 +192,7 @@ function makeSound() {
   await s.sound.dispose?.();
   check(s.c.state === 'closed' && other.state === 'running' && s.sound.contexts().length === 0, 'la destruction définitive ferme seulement le contexte lié au Player');
 }
-const piste = () => ({ tagName: 'AUDIO', currentSrc: 'voix.wav', volume: 1, currentTime: 0, paused: false, muted: false });
+const piste = () => ({ tagName: 'AUDIO', currentSrc: 'voix.wav', volume: 1, currentTime: 0, readyState: 4, paused: false, muted: false });
 {
   const s = makeSound(); s.media.push(piste()); s.player.playing = false; s.c.state = 'suspended'; s.sound.restore(); s.clock(3600);
   check(s.events.some(e => e.state === 'armed') && !s.events.some(e => e.state === 'back') && s.c.resumes === 0,
@@ -207,6 +207,14 @@ const piste = () => ({ tagName: 'AUDIO', currentSrc: 'voix.wav', volume: 1, curr
 {
   const s = makeSound(); s.media.push({...piste(), paused: true}); s.sound.restore(); s.clock(3000);
   check(s.events.some(e => e.state === 'failed') && !s.events.some(e => e.state === 'back'), 'un contexte qui avance avec la seule piste en panne ne confirme jamais le son');
+}
+{
+  const s = makeSound(), a = {...piste(), paused: true, readyState: 1};
+  s.media.push(a); s.sound.bindContext(s.c, () => { if (a.readyState >= 2) a.paused = false; });
+  s.sound.restore(); s.clock(3000);
+  check(!s.events.some(e => e.state === 'failed' || e.state === 'back'), 'une piste encore en chargement garde sa chance de démarrer dans la même iframe');
+  a.readyState = 4; s.clock(1200);
+  check(s.events.some(e => e.state === 'back') && !a.paused, 'une piste disponible après le premier réveil est relancée et vérifiée');
 }
 {
   const s = makeSound();
