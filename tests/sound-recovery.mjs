@@ -65,6 +65,19 @@ try {
   await dans('StudioPlayer.mute()'); await attendreDans('StudioPlayer.isMuted()');
   await p.eval('const r = document.querySelector("#vol"); r.value = "0.6"; r.dispatchEvent(new Event("input"))');
   await attendreDans('!StudioPlayer.isMuted()'); passe('Le curseur de volume réactive le son');
+
+  // Repli sur la scène 3D réelle du bac, qui met nettement plus longtemps à
+  // se charger que le projet synthétique. Un seul clic Lecture pendant ce temps.
+  await arret(900); await dans('await initial.close()');
+  const debut = Date.now(); await clic('bSound');
+  await p.until('document.querySelector("iframe.code-next")');
+  await clic('bPlay');
+  await p.until('!document.querySelector("iframe.code-next")', 120000);
+  assert.notEqual(await adresse(), origine, 'la candidate E03 a été abandonnée');
+  const adoption = Date.now() - debut;
+  await attendreSon();
+  passe('Reconstruction E03 à 900, Lecture conservée (adoption en ' + adoption + ' ms, contre-mesure terminée en ' + (Date.now() - debut) + ' ms)');
+
   await arret(940); await clic('srcVideo'); await p.until('__studio.state().mode === "video"');
   await clic('bPlay'); await p.until('!document.querySelector("#v").paused');
   const avant = await p.eval('const v = document.querySelector("#v"); v.muted = true; v.volume = 0.1; return v.currentTime');
