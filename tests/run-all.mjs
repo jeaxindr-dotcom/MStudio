@@ -27,6 +27,8 @@ const RENDER_SOURCE = path.join(SANDBOX, 'E03 - The Secret Garden', 'E03 - The S
 // [suite, besoin] : self crée ses serveurs ; sandbox utilise E03 ; render utilise sa copie.
 const SUITES = [
   ['isolation-runtime-test', 'self'],
+  ['lot-capture-ui', 'self'], ['lot-frame-list', 'self'], ['lot-images-cli', 'self'], ['lot-sources', 'self'],
+  ['lot-updates', 'self'], ['lot-capture-recovery', 'self'], ['lot-capture-workspace', 'self'], ['envoi-performance', 'self'],
   ['shot-render-regressions', 'self'],
   ['initial-publication-regressions', 'self'],
   ['reply-delivery', 'self'], ['reply-delivery-ui', 'self'], ['reply-images', 'self'], ['reply-delivery-browser', 'self'],
@@ -58,7 +60,9 @@ function run(name, env) {
       clearTimeout(timer);
       fs.writeFileSync(path.join(SCR, `${name}.log`), out);
       const m = /(\d+) ok, (\d+) (?:ko|échec)/.exec(out.split(/\r?\n/).reverse().find((l) => /\d+ ok, \d+ (ko|échec)/.test(l)) ?? '');
-      const okN = m ? +m[1] : 0, ko = m ? +m[2] : 1, skipped = /\(sauté/.test(out) && okN === 0 && ko === 0;
+      const passes = /^(?:ℹ |# )pass (\d+)$/m.exec(out), failures = /^(?:ℹ |# )fail (\d+)$/m.exec(out);
+      const okN = m ? +m[1] : Number(passes?.[1] ?? 0), ko = m ? +m[2] : Number(failures?.[1] ?? 1);
+      const skipped = /\(sauté/.test(out) && okN === 0 && ko === 0;
       resolve({ name, ok: okN, ko: code && !ko ? 1 : ko, skipped, s: Math.round((Date.now() - t0) / 1000), failed: out.split(/\r?\n/).filter((l) => /✗|ERREUR|erreur :/.test(l)).slice(0, 6) });
     });
   });
