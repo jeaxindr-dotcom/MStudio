@@ -26,7 +26,8 @@ function fixture(lots = new Map()) {
   const ctx = {
     URL, Worker, process: {env: {}}, P: {kind: 'remotion'}, lang: () => 'fr', t: (k) => k,
     updatesLine: (u) => u ? 'Contrôle terminé' : '', updatesOk: (u) => !!u,
-    body: async (req) => Buffer.from(JSON.stringify(req.data)), meta: () => ({fps: 30, size: [640, 360]}),
+    body: async (req) => Buffer.from(JSON.stringify(req.data)), reviewFormat: () => ({fps: 30, size: [640, 360]}),
+    meta() { throw new Error('Inspection générale du matériel pendant un envoi'); },
     agentState: () => ({watching: true, agent}), agentById: (id) => id === 'claude' ? agent : {id, name: id},
     setTimeout() {}, log() {}, oneLotAtATime: (f) => f(),
     checkUpdates: () => new Promise(() => {}),  // le contrôle à froid sur 935ce39
@@ -58,6 +59,14 @@ test('Deux envois à froid sont publiés pendant le contrôle et reçoivent leur
   workers[0].emit('message', receipt);
   await tick();
   assert.deepEqual(saved, [{n: 1, id: 'g1', u: receipt}, {n: 2, id: 'g2', u: receipt}]);
+});
+
+test('Sans format fourni, un envoi utilise uniquement les dimensions et mémorise la session en attente', async () => {
+  const {ctx, lots} = fixture();
+  ctx.agentState = () => ({watching: !lots.size, agent: {id:'claude'}});
+  const response = {};
+  await ctx.send({method:'POST', data:{}}, response);
+  assert.equal(response.body.agent.watching, true);
 });
 
 test('Après redémarrage, l’agent désigné lors de l’envoi reçoit le résultat du contrôle', async () => {

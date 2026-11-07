@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { optionsFrom, episode, pickVideo, stamp, proxyFresh, stillSource, readJson, writeJson, nowIso } from './lib/episode.mjs';
 import { videoFrame, codeFrame, codeSignature, sweepStaleTemp } from './lib/frames.mjs';
 import crypto from 'node:crypto';
-import { createLot, lotsSummary, connectLine, MAX_EDITS, createRenderLot, withdrawRenderLot, compareItems, CLI as CLI_FILE } from './lib/lots.mjs';
+import { createLot, resumeLotCaptures, readLot, lotNumbers, saveLotUpdates, lotsSummary, connectLine, MAX_EDITS, createRenderLot, withdrawRenderLot, compareItems, CLI as CLI_FILE } from './lib/lots.mjs';
 import { speedState, startSpeedCopy, stopSpeedCopy, speedLog } from './lib/speed-copy.mjs';
 import { renderState, renderFiles } from './lib/render.mjs';
 import { exportAvailable, exportState, startExport, stopExport, exportLog, exportOptions, exportOptionsReady } from './lib/export.mjs';
@@ -239,19 +239,25 @@ function agentState() {
   return { watching: a.waiting && age < 20000, since: a.since, beat: a.beat, lastLot: a.lastLot ?? null, agent: a.agent ?? null };
 }
 
-function meta() {
-  refreshProxy();
+// Les dimensions d'un lot ne nécessitent ni détection GPU ni inspection d'export.
+function reviewFormat() {
   const video = pickVideo(P);
   const snapshot = B ? readJson(SNAP, null) : null;
-  const render = video ? stamp(video) : null, pr0 = probe(video);
+  const pr0 = probe(video);
   const hc = HFP ? hfComposition(P.hf.projet, P.hf.index) : null;   // a HyperFrames project: its root composition's size and rate
   const pr = HFP && hc && !video ? { size: [hc.width, hc.height], fps: hc.fps } : pr0;
+  return { video, snapshot, hc, size: pr.size, fps: B ? snapshot?.fps ?? 30 : pr.fps ?? timeline.state.data?.fps ?? 30 };
+}
+function meta() {
+  refreshProxy();
+  const {video, snapshot, hc, size, fps} = reviewFormat();
+  const render = video ? stamp(video) : null;
   const XA = XP ? exportAvailable(P) : { ok: false, why: null };   // (asked once: it reads the export's folder)
   return {
     kind: P.kind, format: P.project?.format ?? null, features: { code: CODE, staging: CODE, render: B, plan: !!timeline.state.data, video: !!video, export: XP && XA.ok }, exportWhy: XP ? XA.why : null, gpu: XP || B ? { ...gpuEncoder(), off: gpuOff() } : null, exportOptions: XP && XA.ok ? exportOptions(P) : [],
     composition: G ? P.remotion.composition : HFP ? hc?.id ?? null : null, engine: B || G ? 'remotion' : HFP ? 'hyperframes' : null, hfVersion: HFP ? hfFor(P.hf.projet)?.version ?? null : null, channel: P.channel ?? null, coulisses: P.coulisses ?? null, exportDir: P.exportRule?.dossier ?? null,
-    size: pr.size, root: P.EP, videoPath: video ?? null,
-    episode: ep, title: B ? folder.replace(/^E\d+ - /, '') : P.title, folder, fps: B ? snapshot?.fps ?? 30 : pr.fps ?? timeline.state.data?.fps ?? 30, render, snapshot,
+    size, root: P.EP, videoPath: video ?? null,
+    episode: ep, title: B ? folder.replace(/^E\d+ - /, '') : P.title, folder, fps, render, snapshot,
     snapshotMatches: !!(snapshot?.video && render && snapshot.video.size === render.size),
     proxy: proxyState === 'ready' && !proxyFresh(P) ? 'stale' : proxyState,
     notesFile: NOTES, maxEdits: MAX_EDITS, plans: plansNow(),
@@ -827,11 +833,12 @@ const server = http.createServer(async (req, res) => {
     // ---- the pending edits -> a batch for Claude ----
     if (pn === '/api/send' && req.method === 'POST') {
       const b = JSON.parse((await body(req)).toString('utf8'));
-      const m = b.fps && Array.isArray(b.size) ? null : meta();
+      const m = b.fps && Array.isArray(b.size) ? null : reviewFormat();
+      const watcher = agentState();
       const a = updatesAgent(b.agent);
       const r = await oneLotAtATime(() => createLot(P, b, { fps: b.fps || m.fps, size: Array.isArray(b.size) ? b.size : m.size, log, deferred: true, updatesPending: true, agent: {id: a.id, name: a.name} }));
       const lot = readLot(P, r.lot), pending = !!lot?.updatesPending;
-      json(res, { ok: true, ...r, agent: agentState(), updates: pending ? t('upd.line.pending') : updatesLine(lot?.updates) || t('upd.line.unavailable'),
+      json(res, { ok: true, ...r, agent: watcher, updates: pending ? t('upd.line.pending') : updatesLine(lot?.updates) || t('upd.line.unavailable'),
         updatesOk: pending || updatesOk(lot?.updates), pendingUpdatesId: pending ? lot.captureState.id : null });
       scheduleLotUpdates(lot);
       return;
@@ -952,6 +959,7 @@ if (other) {
   process.exit(0);
 }
 server.on('listening', () => {
+  resumeLotCaptures(P, log);
   try { writeJson(LOCK, { pid: process.pid, port, url: `http://127.0.0.1:${port}/`, since: nowIso() }); } catch { /* a read-only revue: no lock */ }
 });
 process.on('exit', () => { try { if (readJson(LOCK, null)?.pid === process.pid) fs.rmSync(LOCK, { force: true }); } catch { /* */ } });
