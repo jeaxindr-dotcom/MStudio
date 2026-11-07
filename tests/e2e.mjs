@@ -234,9 +234,19 @@ try {
     // encore à l'image 300, pendant le chargement de la scène.
     await p.eval('await window.__preview.prepare(300); await window.__preview.play()');
     await p.until('__preview.isPlaying() && __preview.frame() >= 360 && !__preview.isBuffering()');
-    const before = await p.frameEval('player.html', `const f = StudioPlayer.frame(); setTimeout(() => { const t = performance.now(); while (performance.now() - t < 2500) {} }, 0); return f`);
-    await sleep(3200);
-    const after = await p.eval('return window.__preview.frame()');
+    // Mesurer dans l'iframe, après la fenêtre de recalage de 400 ms du garde.
+    // Une scène peut se trouver encore sur l'image corrigée au relevé suivant.
+    const {before, after} = await p.frameEval('player.html', `return new Promise(resolve => setTimeout(() => {
+      const before = StudioPlayer.frame(), start = performance.now();
+      while (performance.now() - start < 2500) {}
+      const end = performance.now();
+      const sample = () => {
+        const elapsed = performance.now() - end, after = StudioPlayer.frame();
+        if (elapsed >= 400 && (after > before || elapsed >= 4000)) resolve({before, after});
+        else requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    }, 0))`);
     check(after > before && after - before < 45, `a freeze of 2.5 s while playing: the playback goes on where it froze (${before} → ${after}, no 75 frames skipped)`);
     await p.frameEval('player.html', `setTimeout(() => { const t = performance.now(); while (performance.now() - t < 2500) {} }, 0); return 1`);
     await sleep(400);
