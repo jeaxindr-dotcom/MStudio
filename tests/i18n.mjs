@@ -13,10 +13,11 @@ import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { launch, requireSandbox } from './cdp.mjs';
-import { freePort } from './where.mjs';
+import { engineCopyFlags, freePort } from './where.mjs';
 import { waitForRenderIdle } from '../lib/render-activity.mjs';
 
 const STUDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SANDBOX = path.resolve(process.env.STUDIO_SANDBOX ?? path.join(STUDIO, 'sandbox', '07_Episodes'));
 const SCR = path.join(STUDIO, '.cache', 'i18n-test');
 fs.rmSync(SCR, { recursive: true, force: true }); fs.mkdirSync(SCR, { recursive: true });
 process.env.COULISSES_LANG = 'en';
@@ -29,7 +30,8 @@ const { importProject } = await import('../lib/projects.mjs');
 const FR = I.DICTS.fr, EN = I.DICTS.en;
 // Ports propres au test, hors des ports réservés ; le port réellement pris est
 // toujours relu dans « HUB_READY http://127.0.0.1:<port>/ ».
-let HUB_PORT = await freePort(4220);
+let HUB_PORT = await freePort(4240);
+const episodeFlags = ['--episodes', SANDBOX, ...engineCopyFlags()];
 const hubPort = (out) => +(/HUB_READY http:\/\/127\.0\.0\.1:(\d+)/.exec(out)?.[1] ?? HUB_PORT);
 const CLI = path.join(STUDIO, 'studio-cli.mjs'), ST_PORT = await freePort(HUB_PORT + 2), shots = path.join(STUDIO, '.cache', 'shots');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));   // COULISSES_TEST_SLOW=2: a slower PC
@@ -137,7 +139,7 @@ try {
 
   // ---------- 5. the home screen and the studio ----------
   console.log('the home screen and the studio');
-  hub = spawn(process.execPath, [path.join(STUDIO, 'hub-server.mjs'), '--port', String(HUB_PORT)], { cwd: STUDIO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  hub = spawn(process.execPath, [path.join(STUDIO, 'hub-server.mjs'), ...episodeFlags, '--port', String(HUB_PORT)], { cwd: STUDIO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
   let hubOut = ''; hub.stdout.on('data', (d) => { hubOut += d; }); hub.stderr.on('data', (d) => { hubOut += d; });
   for (let i = 0; i < 60 && !/HUB_READY/.test(hubOut); i++) await sleep(250);
   HUB_PORT = hubPort(hubOut);
@@ -241,7 +243,10 @@ try {
     await p.eval(`document.querySelector('.mb-item[data-id="${id}"]').click(); return 1`); await sleep(500);
   };
   await item('help', 'about');
-  check(/About Coulisses/.test(await ev(`return document.querySelector('.mb-dlg').innerText`)) && /MIT/.test(await ev(`return document.querySelector('.mb-dlg').innerText`)), 'Help › About Coulisses: version, MIT license, the GitHub link');
+  // La fenêtre est construite après la réponse de /api/about.
+  await until(`document.querySelector('.mb-dlg #mbRepo')`);
+  const about = await ev(`const dlg = document.querySelector('.mb-dlg'); return {title:dlg.querySelector('h2').textContent, text:dlg.innerText, repo:dlg.querySelector('#mbRepo').textContent}`);
+  check(about?.title === 'About Coulisses' && /\d+\.\d+\.\d+/.test(about.text) && /\bMIT\b/.test(about.text) && /^github\.com\//.test(about.repo), 'Help › About Coulisses: version, MIT license, the GitHub link');
   await scan('studio, About'); await p.key('Escape', 'Escape');
   await item('edit', 'prefs');
   check(/Preferences/.test(await ev(`return document.querySelector('.mb-dlg h2').textContent`)) && (await ev(`return document.querySelector('.mb-dlg [data-l=en]').disabled`)), 'Edit › Preferences…: the language (fixed here by COULISSES_LANG), the agent');
@@ -253,12 +258,12 @@ try {
   await p.shot(path.join(shots, 'i18n-2-studio-run.png'));
 
   // the sandbox E03 (a Brambleshire episode: the render card, the staging panel, the episode's tracks), read only
-  st = spawn(process.execPath, [path.join(STUDIO, 'studio-server.mjs'), 'E03', '--no-open', '--episodes', path.join(STUDIO, 'sandbox', '07_Episodes'), '--port', String(ST_PORT)], { cwd: STUDIO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  st = spawn(process.execPath, [path.join(STUDIO, 'studio-server.mjs'), 'E03', '--no-open', ...episodeFlags, '--port', String(ST_PORT)], { cwd: STUDIO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stOut = ''; st.stdout.on('data', (d) => { stOut += d; }); st.stderr.on('data', (d) => { stOut += d; });
   for (let i = 0; i < 120 && !/Open: http/.test(stOut); i++) await sleep(250);
   const stUrl = /Open: (http:\/\/(?:localhost|127\.0\.0\.1):\d+\/)/.exec(stOut)?.[1];
   check(!!stUrl && /review studio for E03/.test(stOut) && /Close this window to stop the tool\./.test(stOut), `the studio's console, in English (« Open: ${stUrl} »)`);
-  await requireSandbox(stUrl, path.join(STUDIO, 'sandbox', '07_Episodes'));
+  await requireSandbox(stUrl, SANDBOX);
   await p.goto(stUrl);
   await until(`document.querySelector('#v').readyState >= 2`, 60000); await sleep(2500);
   for (const tab of ['agent', 'queue', 'notes', 'lots', 'insp', 'medias', 'scene']) { await p.eval(`document.querySelector('button[data-tab=${tab}]').click(); return 1`); await sleep(500); await scan(`studio (episode E03), tab ${tab}`); }
@@ -275,7 +280,7 @@ try {
   await p.goto(`http://127.0.0.1:${HUB_PORT}/`); await sleep(300);
   await fetch(`http://127.0.0.1:${HUB_PORT}/api/quit`, { method: 'POST' }).catch(() => {}); await sleep(800); kill(hub);
   fs.writeFileSync(process.env.COULISSES_SETTINGS, JSON.stringify({ lang: 'en', other: 1 }));
-  hub = spawn(process.execPath, [path.join(STUDIO, 'hub-server.mjs'), '--port', String(HUB_PORT)], { cwd: STUDIO, env: { ...process.env, COULISSES_LANG: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  hub = spawn(process.execPath, [path.join(STUDIO, 'hub-server.mjs'), ...episodeFlags, '--port', String(HUB_PORT)], { cwd: STUDIO, env: { ...process.env, COULISSES_LANG: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   hubOut = ''; hub.stdout.on('data', (d) => { hubOut += d; });
   for (let i = 0; i < 60 && !/HUB_READY/.test(hubOut); i++) await sleep(250);
   HUB_PORT = hubPort(hubOut);
