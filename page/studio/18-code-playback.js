@@ -86,7 +86,7 @@
       if (!active()) return transport.play.value.call(M);
       if (!current(session)) { requestLeave(); return; }
       if (!ready()) return note(words('La plage est encore en préparation.', 'The range is still being prepared.'));
-      film.play().catch((e) => { note(words(`Lecture refusée : ${e.message}`, `Playback refused: ${e.message}`)); fire('pause'); });
+      film.play().catch((e) => { if (aborted(e)) return; note(words(`Lecture refusée : ${e.message}`, `Playback refused: ${e.message}`)); fire('pause'); });
     };
     M.pause = () => { film.pause(); if (!active()) transport.pause.value.call(M); else fire('pause'); };
     const originalSound = restoreSound;

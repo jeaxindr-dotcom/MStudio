@@ -2,6 +2,7 @@
 // The parts of page/studio/ are one script: studio-server.mjs joins them in their order inside one function (/studio.js),
 // so they share their names as the one inline script did; hence the two-space indent.
   // ---------- media: the rendered MP4, or the live preview of the code (Remotion Player in an iframe) ----------
+  const aborted = (e) => e?.name === 'AbortError' || /interrupted by a (new load request|call to pause)/i.test(String(e?.message ?? ''));
   let mode = 'video', SP = null, codeVer = -1, codeLoading = null, rate = 1, vol = 1, preparedCode = null;
   const bus = new EventTarget();
   const fire = (t) => bus.dispatchEvent(new Event(t));
@@ -22,7 +23,10 @@
       if (rsOn()) rsAt(t);   // (the review sound there too)
     },
     get paused() { return mode === 'code' && SP ? !SP.isPlaying() : v.paused; },
-    play() { if (mode === 'code' && SP) { cancelCodePreparation(); v.pause(); cwSeq++; codeWaitEl.classList.remove('pend', 'pend-key', 'on'); const sp = SP; Promise.resolve(sp.play()).then(() => { if (SP === sp && rsOn()) { sp.mute?.(); rsAt(M.currentTime); rsPlay(); } }).catch((e) => { if (SP === sp) { RS.el?.pause(); setSave(`Lecture refusée : ${e.message}`, 'err'); fire('pause'); } }); } else { const r = v.play(); r?.catch?.((e) => setSave(`Lecture refusée : ${e.message}`, 'err')); } },   // playing: no veil
+    // (a play() overtaken by a pause() — a click on Lecture then on Pause, a move, a mode change — is the browser's
+    // AbortError: the pause won, nothing failed; never said as « Lecture refusée », user report 07/11/2026)
+    play() { if (mode === 'code' && !SP) return;   // (the live preview not there yet: the hidden MP4 is never played in its place)
+      if (mode === 'code' && SP) { cancelCodePreparation(); v.pause(); cwSeq++; codeWaitEl.classList.remove('pend', 'pend-key', 'on'); const sp = SP; Promise.resolve(sp.play()).then(() => { if (SP === sp && rsOn()) { sp.mute?.(); rsAt(M.currentTime); rsPlay(); } }).catch((e) => { if (SP === sp && !aborted(e)) { RS.el?.pause(); setSave(`Lecture refusée : ${e.message}`, 'err'); fire('pause'); } }); } else { const r = v.play(); r?.catch?.((e) => { if (!aborted(e)) setSave(`Lecture refusée : ${e.message}`, 'err'); }); } },   // playing: no veil
     pause() { if (mode === 'code' && SP) { SP.pause(); v.currentTime = (SP.frame() + 0.5) / FPS; } RS.el?.pause(); v.pause(); },
     get playbackRate() { return rate; },
     set playbackRate(r) { rate = r; v.playbackRate = r; SP?.setRate(r); if (RS.el) RS.el.playbackRate = r; },
