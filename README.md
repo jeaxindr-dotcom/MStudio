@@ -23,6 +23,8 @@ Download and run `MStudio-Setup-0.2.1-win-x64.exe` from Releases. It installs fo
 
 ## Work with the project
 
+When building on Windows, prefer a short checkout path such as `C:\src\MStudio`. If Inno Setup reports that it cannot find the path from a deeply nested checkout, reopen the project through a short path and rerun the build command below.
+
 - The library opens projects in review, timeline and storyboard views. Use **Agent** for feedback tied to a frame, and **Scene** for staging where a project supports it.
 - In **Scene → Scene elements**, search for an object by name to select it even when something else hides it. In **Free camera**, left-click to select, hold the middle button and drag to orbit, right-drag to pan, and scroll to zoom. **3D grid** shows a ground plane and compass in the editor only; the film and review snapshots stay clean.
 - In a rebuilt project, edit `src/layers.json` for geometry and keyframes or `src/Scene.tsx` for the React drawing code. Run `npm run studio` to preview or `npm run render` to export from its folder. The bundled engine is linked on the authoring machine; for a standalone copy, install the dependencies from its `package.json`.

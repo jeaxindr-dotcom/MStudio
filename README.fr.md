@@ -23,6 +23,8 @@ Télécharge et lance `MStudio-Setup-0.2.1-win-x64.exe` dans les versions publi�
 
 ## Utiliser les sources
 
+Compilation sous Windows : utilise de préférence un chemin de travail court, par exemple `C:\src\MStudio`. Si Inno Setup indique « Le chemin d’accès spécifié est introuvable » dans une arborescence profonde, rouvre le projet via un chemin court puis relance la commande de compilation ci-dessous.
+
 - Ouvre la bibliothèque pour retrouver les espaces Revue, Montage et Storyboard. **Agent** conserve le contexte de l’image lorsqu’on lui envoie une modification ; **Scène** sert à la mise en scène dans les projets compatibles.
 - Dans **Scène → Éléments de la scène**, cherche un objet par son nom pour le sélectionner, même si un autre le masque. En **Caméra libre**, le clic gauche sélectionne ; maintiens la molette et glisse pour tourner, maintiens le bouton droit et glisse pour déplacer la vue, ou roule la molette pour zoomer. **Grille 3D** affiche le sol et la boussole sans modifier le film ni les captures de revue.
 - Dans un projet reconstruit, ouvre `src/layers.json` pour les calques, `src/Scene.tsx` pour le code de dessin. Depuis le dossier du projet, `npm run studio` ouvre Remotion Studio et `npm run render` exporte la vidéo. Sur un autre poste, installe les dépendances du `package.json`.
