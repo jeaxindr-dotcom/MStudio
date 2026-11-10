@@ -130,7 +130,8 @@ test('G6 : une mise à jour en mode MP4 ne prépare aucun Player caché', () => 
   const c = {STATUS: {code: {version: 2, status: 'ready'}}, SP: {}, codeVer: 1, codeLoad: null, codeLoading: null, codeFailedVer: null,
     mode: 'video', modeWant: null, liveVer: 0, $: () => element, rsStatus() {}, followPlans() {}, T: (x) => x, hhmm() {},
     loadCode() {loads++;}, showCodeStatus() {}, renderPill() {}, onHeld() {}, markGo() {}};
-  vm.runInNewContext(`${s.slice(a, b)};onStatus();`, c);
+  const presence=s.slice(s.indexOf('  function agentPresence('),s.indexOf('\n  let repliesTxt'));
+  vm.runInNewContext(`${presence}\n${s.slice(a, b)};onStatus();`, c);
   assert.equal(loads, 0);
 });
 function audioFixture() {

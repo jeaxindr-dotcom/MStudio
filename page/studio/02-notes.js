@@ -471,6 +471,14 @@
   let AGENT_PICK = store.get('agent', 'claude');   // chosen in « Connecter à l'agent »; the agent watching the tool wins
   const AGENT_LABELS = { claude: 'Claude Code', codex: 'Codex' };
   const agentName = () => (STATUS.agent?.watching && STATUS.agent?.agent?.name) || AGENT_LABELS[AGENT_PICK] || T('st.agent.yours');
+  function agentPresence(status) {
+    const a=status.agent??{};
+    if(a.watching) return {kind:'listening',name:a.agent?.name||agentName()};
+    const lot=(status.lots??[]).filter(l=>l.claude?.status==='taken').sort((x,y)=>y.lot-x.lot)[0];
+    if(!lot) return {kind:'offline'};
+    const name=lot.claude.agent?.name || (a.lastLot===lot.lot && a.agent?.name);
+    return {kind:'claimed',lot:lot.lot,text:T(name?'st.ag.claimedBy':'st.ag.claimed',{name,lot:lot.lot})};
+  }
   let repliesTxt = '', statusTxt = '', statusKey = '', offline = false;
   async function pollReplies() {
     try {
@@ -518,9 +526,11 @@
     rsStatus();   // (the review sound: 01-preview.js)
     followPlans();   // (a new version of the code or of the video: the notes on their moments)
     const a = STATUS.agent ?? {}, b = $('#agent');
+    const presence=agentPresence(STATUS);
     b.classList.toggle('on', !!a.watching);
     b.querySelector('.t').textContent = a.watching ? T('st.agent.on', { name: a.agent?.name ? ' · ' + a.agent.name : '' }) : T('st.agent.connect');
     b.title = a.watching ? T('st.agent.watchTitle', { name: a.agent?.name ?? T('st.agent.Yours'), since: hhmm(a.since) }) : T('st.agent.clickTitle');
+    if(presence.kind==='claimed'){b.querySelector('.t').textContent=presence.text;b.title=T('st.ag.claimedHint');}
     const ver = STATUS.code?.version ?? 0;
     if (modeWant === 'code' && mode !== 'code' && STATUS.code?.status === 'ready' && codeFailedVer !== ver && codeLoad?.ver !== ver) setMode('code');
     if (mode === 'code' && STATUS.code?.status === 'ready' && codeFailedVer !== ver) {

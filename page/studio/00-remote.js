@@ -119,6 +119,7 @@
       list: () => [...M.infos.values()].filter((x) => !zeroDelta(x.delta) || x.cutout),
       info: (id) => M.infos.get(id) ?? { id, delta: plain(ZERO_D), from: undefined, to: undefined, base: null },
       infoNow: (id) => call('stage.info', id),
+      elements: () => call('stage.elements'),
       has: (id) => M.infos.has(id),
       // (its scope kept when none is given, as the stages do; { quiet: true }: an undo or a redo, its « change » said quiet)
       setDelta: (id, d, from, to, opts) => {
@@ -132,6 +133,7 @@
       freeCamera: (want, pose) => call('stage.freeCamera', want, pose ?? null),
       freePose: () => call('stage.freePose'),
       resetCamera: () => call('stage.resetCamera'),
+      setGuides: (show) => call('stage.setGuides',!!show),
       snapshot: () => call('stage.snapshot'),
       screenPos: (id) => call('stage.screenPos', id),
       edits: () => call('stage.edits'),

@@ -35,6 +35,9 @@
   svg.ic { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
   svg.ic.fill { fill: currentColor; stroke: none; }
   input { accent-color: var(--lime); }
+  /* WebView2 paints native select popups separately from the panel behind the control. */
+  select option { background-color: var(--glass-2); color: var(--s12); }
+  select option:disabled { color: GrayText; }
   /* the big panels lie on the page's still background only: no blur behind them (blurring that soft gradient changed
      nothing to see, and Chrome drew its edge at a seam of its tiles — a light band across a panel, user report
      18/10/2026 « une sorte de voile blanc »); the colour lift kept (saturate: one pixel at a time, no seam) */
@@ -301,6 +304,7 @@
   #scene .grid3 .lbl { color: var(--s9); }
   #scene input[type=number], #scene select { width: 100%; height: 30px; background: rgba(0, 0, 0, 0.25); color: var(--s12); border: 1px solid var(--stroke); border-radius: 10px; padding: 0 8px; font: 500 12.5px var(--font-d); font-variant-numeric: tabular-nums; }
   #scene input:focus, #scene select:focus { outline: none; border-color: rgba(201, 242, 107, 0.5); }
+  #scene select:focus-visible { outline: 2px solid var(--acc); }
   #scene .axis { text-align: center; color: var(--s9); font: 600 11px var(--font-d); }
   #scene .row { display: flex; gap: 6px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
   #scene .row .grow { flex: 1; }
@@ -309,6 +313,12 @@
   #scene .range input { width: 90px; }
   #scene .item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: rgba(0, 0, 0, 0.18); margin-top: 6px; font-size: 12px; cursor: pointer; }
   #scene .item:hover { background: rgba(255, 255, 255, 0.06); }
+  .scene-elements input { width:100%; padding:6px 8px; color:var(--s12); background:var(--bg); border:1px solid var(--stroke-2); border-radius:4px; }
+  .scene-objects { display:grid; max-height:220px; overflow:auto; gap:2px; padding:4px 0; }
+  .scene-objects .scene-object { justify-content:flex-start; width:100%; min-height:28px; height:auto; padding:4px 8px; text-align:left; color:var(--s11); background:transparent; border:1px solid transparent; border-radius:4px; }
+  .scene-object span { overflow-wrap:anywhere; }
+  .scene-objects .scene-object:hover { background:var(--glass-2); }
+  .scene-objects .scene-object[aria-pressed=true] { color:var(--acc); border-color:var(--acc); background:var(--glass-2); }
   #scene .item .d { color: var(--s11); margin-left: auto; font-variant-numeric: tabular-nums; }
   #scene kbd { margin: 0 1px; }
   #scene h3.sh { display: flex; align-items: center; gap: 7px; margin: 14px 6px 6px; font: 600 11px var(--font-d); text-transform: uppercase; letter-spacing: .1em; color: var(--s9); }
@@ -445,7 +455,6 @@
   #lotF { flex: 1 1 150px; min-width: 0; height: 32px; padding: 0 10px; background: rgba(0, 0, 0, 0.25); color: var(--s12); border: 1px solid var(--stroke); border-radius: 10px; font: 500 12.5px var(--font-d); cursor: pointer; }
   #lotF:focus { outline: none; border-color: rgba(255, 255, 255, 0.35); }
   #lotF.on { border-color: rgba(98, 168, 255, 0.6); background: rgba(98, 168, 255, 0.10); }
-  #lotF option { background: #151826; color: var(--s12); }
   #lotOk { height: 32px; font-size: 12px; padding: 0 12px; border-color: rgba(79, 217, 139, 0.45); color: #8ff0b6; }
   #lotOk:hover { background: rgba(79, 217, 139, 0.14); }
   #lotOk svg.ic { width: 14px; height: 14px; }

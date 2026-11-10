@@ -137,6 +137,7 @@
           if (stagingBefore) {
             if (!(await sp.stage.enable(true))) throw new Error('La scène de la nouvelle version n’est pas disponible'); check();
             sp.stage.setMode(stMode);
+            if(sp.stage.kind==='3d') {await sp.stage.setGuides?.(gridWanted);check();}
             if (pose && sp.stage.freeCamera) { await sp.stage.freeCamera(true, pose); check(); }
             if (chosen) sp.stage.select(chosen);
           }

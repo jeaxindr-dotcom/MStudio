@@ -10,6 +10,8 @@ import { addEffect, addAfterEffect } from '@react-three/fiber';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { stageModeKey, toParent } from './keys';
+import { sceneTargets } from './stage-elements';
+import { createGuides } from './stage-guides';
 
 type V3 = [number, number, number];
 export interface Delta { p: V3; r: V3; s: number }          // position (world units), rotation (radians), uniform scale factor
@@ -37,6 +39,8 @@ export function createStage(D: Deps) {
   let selected: string | null = null, mode: 'translate' | 'rotate' | 'scale' = 'translate';
   let freeCam: { p: THREE.Vector3; q: THREE.Quaternion } | null = null, scenePose: { p: THREE.Vector3; q: THREE.Quaternion } | null = null, lastFree: THREE.Vector3 | null = null;
   let capture: ((url: string) => void) | null = null;
+  let guides: ReturnType<typeof createGuides> | null = null, guidesWanted=true;
+  const syncGuides=()=>guides?.update(st.camera,orbit?.target,!!freeCam,guidesWanted,!!capture);
 
   const mainRoot = () => D.roots().find((r) => r?.store?.getState?.().scene) ?? null;
   // the object to move for a hit mesh: the host just below the first keyed component, or a keyed host group itself
@@ -55,11 +59,20 @@ export function createStage(D: Deps) {
     if (cutouts.has(id)) return cutouts.get(id)!.group;
     const root = mainRoot(); if (!root) return null;
     D.index(root);
+    if (id.startsWith('@three/')) return sceneTargets(root.store.getState().scene, D.fiberOf, D.reactPath, movable).byId.get(id)?.object ?? null;
     let found: THREE.Object3D | null = null;
     root.store.getState().scene.traverse((o: any) => { if (!found && o.isMesh && D.reactPath(o) === id) found = movable(o); });
     return found;
   }
   const meshOf = (o: THREE.Object3D) => { let m: any = null; o.traverse((c: any) => { if (!m && c.isMesh) m = c; }); return m ?? o; };
+
+  function elements() {
+    const root = mainRoot(); if (!root) return [];
+    D.index(root);
+    const { byId } = sceneTargets(root.store.getState().scene, D.fiberOf, D.reactPath, movable);
+    return [...Array.from(byId.values(), ({ id, name, object }) => ({ id, name, kind: object.type })),
+      ...Array.from(cutouts, ([id, cut]) => ({ id, name: cut.spec.name, kind: 'cutout' }))];
+  }
 
   // ---- « Médias » (user request, 08/10/2026: « quand je place l'image créée dans le décor, elle se met automatiquement en
   // carton 3D comme Brambleshire »): an image of the library dropped on the preview becomes a cardboard cutout at once,
@@ -197,12 +210,14 @@ export function createStage(D: Deps) {
       lastFree = pose && !capture ? cam.position.clone() : null;
     }
     if (helper) helper.visible = !capture && !!selected;
+    syncGuides();
     if (box) { box.visible = !capture && !!selected; if (selected) box.update(); }
   });
   addAfterEffect(() => {
     if (!capture || !canvas) return;
     const done = capture; capture = null;
     try { done(canvas.toDataURL('image/jpeg', 0.9)); } catch { done(''); }
+    if(on && freeCam) requestAnimationFrame(()=>{if(on)redrawCamera();});
   });
 
   function delta(e: Edit): Delta {
@@ -219,7 +234,7 @@ export function createStage(D: Deps) {
     }
     const e = edits.get(id), o = e?.obj ?? resolve(id);
     const d = o ? D.describe(meshOf(o)) : null, b = e?.base;
-    return { id, kind: d?.type, delta: e?.delta ?? ZERO, from: e?.from, to: e?.to, base: b ? { p: [b.p.x, b.p.y, b.p.z], r: [b.r.x, b.r.y, b.r.z], s: b.s.x } : o ? { p: [o.position.x, o.position.y, o.position.z], r: [o.rotation.x, o.rotation.y, o.rotation.z], s: o.scale.x } : null };
+    return { id, name: o?.name || undefined, kind: d?.type, delta: e?.delta ?? ZERO, from: e?.from, to: e?.to, base: b ? { p: [b.p.x, b.p.y, b.p.z], r: [b.r.x, b.r.y, b.r.z], s: b.s.x } : o ? { p: [o.position.x, o.position.y, o.position.z], r: [o.rotation.x, o.rotation.y, o.rotation.z], s: o.scale.x } : null };
   };
   function ensure(id: string, from = 0, to = 1e9): Edit {
     let e = edits.get(id);
@@ -231,14 +246,17 @@ export function createStage(D: Deps) {
     if (prev && prev.id !== id && !cutouts.has(prev.id) && isZero(prev.delta)) edits.delete(prev.id);
     selected = id;
     if (!tc || !st) return;
-    if (!id) { tc.detach(); emit({ type: 'deselect' }); return; }
+    if (!id) { tc.detach(); if (on) redrawCamera(); emit({ type: 'deselect' }); return; }
     const e = ensure(id);
     if (!e.obj || !e.obj.parent) e.obj = resolve(id);
     if (!e.obj) { selected = null; tc.detach(); if (!cutouts.has(id) && isZero(e.delta)) edits.delete(id); emit({ type: 'deselect' }); return; }
     if (!e.base) e.base = { p: e.obj.position.clone(), r: e.obj.rotation.clone(), s: e.obj.scale.clone() };
     tc.attach(e.obj);
     if (box) { st.scene.remove(box); box.dispose?.(); }
-    box = new THREE.BoxHelper(e.obj, 0xc9f26b); (box.material as THREE.LineBasicMaterial).depthTest = false; box.renderOrder = 999; st.scene.add(box);
+    box = new THREE.BoxHelper(e.obj, 0xc9f26b);
+    Object.assign(box.material, { transparent: true, depthTest: false, depthWrite: false });
+    box.renderOrder = 999; st.scene.add(box);
+    redrawCamera();
     emit({ type: 'select', ...info(id) });
   }
 
@@ -249,21 +267,19 @@ export function createStage(D: Deps) {
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     const ray = new THREE.Raycaster(); ray.setFromCamera(ndc, st.camera);
     D.index(mainRoot());
+    const { byMesh } = sceneTargets(st.scene, D.fiberOf, D.reactPath, movable);
     for (const hit of ray.intersectObjects(st.scene.children, true)) {
       const cut = hit.object.visible ? cutoutOf(hit.object) : null; if (cut) return cut;   // an image dropped from « Médias »
       if (!D.fiberOf.get(hit.object) || !D.seen(hit)) continue;          // gizmo, helpers: no React fiber
-      const id = D.reactPath(hit.object);
-      if (!id || D.noise.test(id) || !/\[key=/.test(id)) continue;      // floor, motes, light shafts
-      if (movable(hit.object)) return id;
+      const target = byMesh.get(hit.object);
+      if (target && !D.noise.test(D.reactPath(hit.object))) return target.id;
     }
     return null;
   }
   let down: { x: number; y: number } | null = null;
   // Dragging an object moves it straight away, as in 2D: along the floor at its own height (a horizontal plane through
-  // it), or up and down with Shift (a vertical plane facing the camera). The gizmo's arrows stay for exact moves, and a
-  // drag on empty space still turns the free camera around. With the free camera on, only the object already chosen is
-  // dragged (a set's backdrop or floor fills the picture: a drag on it turns the camera, a click on it chooses it). The
-  // object moves once the pointer has gone 4 px: a simple click never nudges it.
+  // it), or up and down with Shift (a vertical plane facing the camera). In free camera mode a middle-button drag
+  // orbits even over a selected backdrop. A left click selects and the gizmo's handles still move the selected object.
   // A camera that looks at the floor almost flat (a Short's eye-level camera, 08/10/2026: 24 px of mouse sent Uchu 16 units
   // away) makes the floor useless to drag on: then the object slides sideways, in the plane facing the camera, at its own
   // height (« side »); the depth stays for the arrows (PageUp/PageDown) and the gizmo. A move is never more than twice
@@ -276,9 +292,9 @@ export function createStage(D: Deps) {
   };
   const onDown = (e: PointerEvent) => {
     down = { x: e.clientX, y: e.clientY };
-    if (e.button !== 0 || (tc as any)?.axis || !st || !canvas) return;   // the gizmo's own drag
+    if (freeCam && e.button === 1) e.preventDefault();   // keep Windows middle-button autoscroll out of the canvas
+    if (freeCam || e.button !== 0 || (tc as any)?.axis || !st || !canvas) return;
     const id = pickAt(e.clientX, e.clientY); if (!id) return;
-    if (orbit?.enabled && id !== selected) return;                        // free camera: the drag turns it
     if (id !== selected) select(id);
     const ed = edits.get(id); if (!ed?.obj) return;
     const world = ed.obj.getWorldPosition(new THREE.Vector3()), look = world.clone().sub(st.camera.position), reach = 2 * Math.max(look.length(), 0.5);
@@ -313,7 +329,7 @@ export function createStage(D: Deps) {
     }
     if (!down || (tc as any)?.dragging) { down = null; return; }
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4; down = null;
-    if (moved || (tc as any)?.axis) return;                              // an orbit, or a click on the gizmo
+    if (moved || e.button !== 0 || (tc as any)?.axis) return;            // an orbit, a pan, or a click on the gizmo
     select(pickAt(e.clientX, e.clientY));
   };
   const onKey = (e: KeyboardEvent) => {
@@ -331,6 +347,21 @@ export function createStage(D: Deps) {
   };
   const onKeyUp = (e: KeyboardEvent) => toParent('keyup', e);
   function setMode(m: typeof mode) { mode = m; tc?.setMode(m); emit({ type: 'mode', mode: m }); }
+  function redrawCamera() {
+    syncGuides();
+    // Paused Remotion compositions may draw on demand or advance their ThreeCanvas manually.
+    const state = st.get();
+    if (state.frameloop === 'never') state.advance(performance.now());
+    else state.invalidate();
+  }
+  function restoreShotCamera() {
+    if (!scenePose) return;
+    st.camera.position.copy(scenePose.p);
+    st.camera.quaternion.copy(scenePose.q);
+    st.camera.updateMatrixWorld();
+    lastFree = null;
+    redrawCamera();
+  }
   function enable(want: boolean) {
     if (want === on) return on;
     const root = mainRoot();
@@ -338,15 +369,22 @@ export function createStage(D: Deps) {
     on = want;
     if (on) {
       st = root.store.getState(); const cv: HTMLCanvasElement = st.gl.domElement; canvas = cv;
+      guides=createGuides(st.scene,cv);
       tc = new TransformControls(st.camera, cv); tc.setSize(0.8); tc.setMode(mode);
       helper = (tc as any).getHelper ? (tc as any).getHelper() : (tc as any); st.scene.add(helper);
       // OrbitControls aims the camera at its target as soon as it is created: the shot's pose is put back at once
       const pose0 = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
       orbit = new OrbitControls(st.camera, cv); orbit.enableDamping = false;
+      orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
       st.camera.position.copy(pose0.p); st.camera.quaternion.copy(pose0.q); st.camera.updateMatrixWorld();
       const target = new THREE.Vector3(0, 0, -1).applyQuaternion(st.camera.quaternion).multiplyScalar(8).add(st.camera.position);
       orbit.target.copy(target); orbit.enabled = false;
-      orbit.addEventListener('change', () => { if (orbit!.enabled) { freeCam = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() }; lastFree = st.camera.position.clone(); } });
+      orbit.addEventListener('change', () => {
+        if (!orbit!.enabled) return;
+        freeCam = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
+        lastFree = freeCam.p.clone();
+        redrawCamera();
+      });
       tc.addEventListener('dragging-changed', (ev: any) => { if (orbit) orbit.enabled = !ev.value && !!freeCam; });
       tc.addEventListener('objectChange', () => {
         const e = selected ? edits.get(selected) : null; if (!e || !e.obj || !e.base) return;
@@ -365,8 +403,11 @@ export function createStage(D: Deps) {
       const css = document.createElement('style'); css.id = 'studio-staging'; css.textContent = '#stage * { pointer-events: none !important } #stage canvas { pointer-events: auto !important }'; document.head.appendChild(css);
     } else {
       select(null);
+      guides?.dispose();guides=null;
       tc?.detach(); if (helper && st) st.scene.remove(helper); tc?.dispose(); tc = null; helper = null;
-      orbit?.dispose(); orbit = null; freeCam = null;
+      orbit?.dispose(); orbit = null;
+      if (freeCam) { freeCam = null; restoreShotCamera(); }
+      scenePose = null;
       if (box && st) { st.scene.remove(box); box.dispose?.(); box = null; }
       canvas?.removeEventListener('pointerdown', onDown); canvas?.removeEventListener('pointerup', onUp); canvas?.removeEventListener('pointermove', onMove);
       window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKeyUp);
@@ -390,7 +431,8 @@ export function createStage(D: Deps) {
     edits.delete(id); if (selected === id) select(null);
   }
   return {
-    enable, select, setMode, setDelta, reset,
+    enable, select, setMode, setDelta, reset, elements,
+    setGuides: (show:boolean) => {guidesWanted=!!show; if(on)redrawCamera(); return guidesWanted;},
     on: (fn: (ev: any) => void) => { listeners.add(fn); return () => listeners.delete(fn); },
     list: () => [...edits.values()].filter((e) => !isZero(e.delta) || cutouts.has(e.id)).map((e) => info(e.id)),
     info, get selected() { return selected; }, get enabled() { return on; },
@@ -402,10 +444,12 @@ export function createStage(D: Deps) {
       if (!orbit || !st) return false;
       // (a pose given: the camera goes there at the next frame — the shot's own pose is still read first, for « Réinitialiser »)
       if (want) {
+        if (!freeCam) scenePose = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
         freeCam = pose ? { p: new THREE.Vector3().fromArray(pose.p), q: new THREE.Quaternion().fromArray(pose.q) } : { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
         const t = new THREE.Vector3(0, 0, -1).applyQuaternion(freeCam.q).multiplyScalar(8).add(freeCam.p); orbit.target.copy(t); orbit.enabled = true;
+        redrawCamera();
       }
-      else { freeCam = null; orbit.enabled = false; if (scenePose) { st.camera.position.copy(scenePose.p); st.camera.quaternion.copy(scenePose.q); } }
+      else { freeCam = null; orbit.enabled = false; restoreShotCamera(); }
       return !!freeCam;
     },
     // back to the shot's camera; a free camera stays free, from there (« Réinitialiser la caméra »)
@@ -413,12 +457,12 @@ export function createStage(D: Deps) {
       if (!orbit || !st) return false;
       const was = !!freeCam;
       freeCam = null; orbit.enabled = false;
-      if (scenePose) { st.camera.position.copy(scenePose.p); st.camera.quaternion.copy(scenePose.q); st.camera.updateMatrixWorld(); }
+      restoreShotCamera();
       if (was) { freeCam = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() }; const t = new THREE.Vector3(0, 0, -1).applyQuaternion(st.camera.quaternion).multiplyScalar(8).add(st.camera.position); orbit.target.copy(t); orbit.enabled = true; }
       return was;
     },
     // the 3D image as the shot's camera sees it, with the offsets, without gizmo (the after image sent to Claude)
-    snapshot: () => new Promise<string>((res) => { capture = res; setTimeout(() => { if (capture === res) capture = null; res(''); }, 3000); }),
+    snapshot: () => new Promise<string>((res) => { capture = res; if(on) redrawCamera(); setTimeout(() => { if (capture === res) {capture=null;if(on)redrawCamera();res('');} }, 3000); }),
     // where the object is on the 1920×1080 frame (its centre), to pin the note on it
     screenPos: (id: string) => {
       const e = edits.get(id), o = e?.obj ?? resolve(id), root = mainRoot(); if (!o || !root) return null;

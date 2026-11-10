@@ -73,6 +73,7 @@ const stage: any = {
   // a 3D scene on screen now (before the staging starts, the panel says how it will go: 3D cardboard or the 2D picture)
   get scene3d() { return !!s3?.hasScene(); },
   get selected() { return active.selected; }, get enabled() { return active.enabled; },
+  elements: () => active.elements(),
   enable(want: boolean) {
     if (!want) { const r = active.enable(false); active = stage2d; return r; }
     if (s3 && s3.hasScene() && s3.stage.enable(true)) { active = s3.stage; return true; }
@@ -90,6 +91,7 @@ const stage: any = {
   selectParent: () => active.selectParent?.() ?? false,
   setMode: (m: any) => active.setMode(m),
   freeCamera: (want: boolean, pose?: any) => active.freeCamera(want, pose),
+  setGuides: (show: boolean) => active.setGuides?.(show) ?? false,
   freePose: () => active.freePose?.() ?? null,
   resetCamera: () => active.resetCamera?.() ?? false,
   snapshot: () => active.snapshot(),

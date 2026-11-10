@@ -102,17 +102,17 @@ try {
   // turn the free camera (a drag on empty sky), then reset it: the shot's view again
   const shotView = await p.frameEval('player.html', `return document.querySelector('canvas').toDataURL('image/jpeg', 0.5).length`);
   const sky = await p.eval(`const r = document.querySelector('#media').getBoundingClientRect(); const k = Math.min(r.width / 1080, r.height / 1920); return [r.left + (r.width - 1080 * k) / 2 + 540 * k, r.top + (r.height - 1920 * k) / 2 + 60 * k]`);
-  await p.mouse('mousePressed', sky[0], sky[1]); for (let i = 1; i <= 8; i++) { await p.mouse('mouseMoved', sky[0] + i * 25, sky[1]); await sleep(40); } await p.mouse('mouseReleased', sky[0] + 200, sky[1]); await sleep(600);
+  await p.mouse('mousePressed', sky[0], sky[1], 'middle'); for (let i = 1; i <= 8; i++) { await p.mouse('mouseMoved', sky[0] + i * 25, sky[1], 'middle'); await sleep(40); } await p.mouse('mouseReleased', sky[0] + 200, sky[1], 'middle'); await sleep(600);
   const camPos = () => p.eval(`const sp = window.__preview; return sp.cameraPos ? await sp.cameraPos() : null`);
-  // free camera: a drag that starts on another object (a backdrop, a floor…) turns the camera, nothing moves
+  // free camera: a middle-button drag that starts on another object (a backdrop, a floor…) turns the camera, nothing moves
   const other = await p.eval(`const sp = window.__preview; for (const [x, y] of [[540, 900], [300, 1200], [800, 1200], [540, 400], [200, 700], [900, 700], [540, 1750]]) { const n = (await sp.pick(120, x, y))[0]?.names?.[0] ?? ''; if (/^Stage › Piece/.test(n) && n !== ${JSON.stringify(sel)}) return [x, y, n]; } return null`);
   if (other) {
     const listed = () => p.eval(`return JSON.stringify(${sp3}.list().map((x) => [x.id, x.delta.p]))`);
     const c0 = await camPos(), l0 = await listed();
     const o = await p.eval(`const r = document.querySelector('#media').getBoundingClientRect(); const k = Math.min(r.width / 1080, r.height / 1920); return [r.left + (r.width - 1080 * k) / 2 + ${other[0]} * k, r.top + (r.height - 1920 * k) / 2 + ${other[1]} * k]`);
-    await p.mouse('mousePressed', o[0], o[1]); for (let i = 1; i <= 6; i++) { await p.mouse('mouseMoved', o[0] + i * 15, o[1]); await sleep(40); } await p.mouse('mouseReleased', o[0] + 90, o[1]); await sleep(500);
+    await p.mouse('mousePressed', o[0], o[1], 'middle'); for (let i = 1; i <= 6; i++) { await p.mouse('mouseMoved', o[0] + i * 15, o[1], 'middle'); await sleep(40); } await p.mouse('mouseReleased', o[0] + 90, o[1], 'middle'); await sleep(500);
     const c1 = await camPos();
-    check(c0 && c1 && Math.hypot(c1[0] - c0[0], c1[1] - c0[1], c1[2] - c0[2]) > 0.01 && await listed() === l0 && await p.eval(`return __studio.state().stage`) === sel, `free camera: a drag that starts on another object turns the camera, nothing moves (${other[2]})`);
+    check(c0 && c1 && Math.hypot(c1[0] - c0[0], c1[1] - c0[1], c1[2] - c0[2]) > 0.01 && await listed() === l0 && await p.eval(`return __studio.state().stage`) === sel, `free camera: a middle-button drag that starts on another object turns the camera, nothing moves (${other[2]})`);
   } else console.log('  (no other object under the probe points: the free-camera drag check is skipped)');
   const moved = await camPos();
   await p.eval(`document.querySelector('#sc-cam0').click(); return 1`); await sleep(600);

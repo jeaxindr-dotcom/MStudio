@@ -81,13 +81,14 @@
       if (published) { request.draft = false; request.lot = published.lot; request.sentAt = published.sentAt; persist(); }
     }
     const a = STATUS.agent ?? {}, who = $('#agentWho');
+    const presence=agentPresence(STATUS);
     who.classList.toggle('on', !!a.watching);
-    who.querySelector('.t').innerHTML = a.watching ? esc(T('st.ag.connected', { name: agentName() })) : `${esc(T('st.ag.notConnected'))} <button class="soft" id="agentConnect">${T('st.agent.connect')}</button>`;
+    who.querySelector('.t').innerHTML = a.watching ? esc(T('st.ag.connected', { name: presence.name })) : presence.kind==='claimed' ? esc(presence.text) : `${esc(T('st.ag.notConnected'))} <button class="soft" id="agentConnect">${T('st.agent.connect')}</button>`;
     $('#agentConnect')?.addEventListener('click', openConnect);
     const list = prompts(), lots = Object.fromEntries((STATUS.lots ?? []).map((L) => [L.lot, L]));
     const busy = list.filter((n) => !n.draft && !fixedOf(n)).length;
     $('#nAgent').textContent = busy; $('#nAgent').classList.toggle('zero', !busy); $('#nAgent').classList.toggle('hot', busy > 0);
-    $('#agentHint').textContent = T(a.watching ? 'st.ag.hintOn' : 'st.ag.hintOff');
+    $('#agentHint').textContent = T(a.watching ? 'st.ag.hintOn' : presence.kind==='claimed' ? 'st.ag.claimedHint' : 'st.ag.hintOff');
     const sig = JSON.stringify([list.map((n) => [n.id, n.draft, n.lot, statusOf(n), threadOf(n).length, lots[n.lot]?.claude?.status]), a.watching, sending]);
     if (sig === agentSig) return; agentSig = sig;
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;

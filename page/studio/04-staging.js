@@ -6,6 +6,14 @@
   // (object, Δ position / rotation / scale, scope), who writes it in the code. Draft notes keep their offset visible.
   let staging = false, stSel = null, stMode = 'translate', freeCamOn = false, stageSynced = new Set(), stScope = 'scene', stFrom = 0, stTo = 0;
   const deg = (r) => r * 180 / Math.PI, rad = (d) => d * Math.PI / 180;
+  let gridWanted=true;
+  try {gridWanted=localStorage.getItem('mstudio:stage:grid')!=='off';} catch {}
+  async function toggleGrid(){
+    if(!staging || D2() || !freeCamOn) return;
+    gridWanted=!gridWanted;
+    try {localStorage.setItem('mstudio:stage:grid',gridWanted?'on':'off');} catch {}
+    await SP?.stage?.setGuides?.(gridWanted); renderScene();
+  }
   const sgn = (v, n = 2) => (v >= 0 ? '+' : '−') + dec(Math.abs(v).toFixed(n));
   const sceneAt = (f) => {   // the set on stage at frame f (from the plan of the MP4, else the code's); a run: its band (chapter, beat)
     if (PROJ) {
@@ -33,6 +41,10 @@
       const i = ev ?? SP.stage.info(id);
       return { name: i.name ?? id, kind: T('st.k2.' + (K2[i.kind] ?? 'element')) };
     }
+    if (id.startsWith('@three/')) {
+      const info = ev ?? SP?.stage?.info(id);
+      return { name: info?.name || T('st.kind.element'), kind: '3D' };
+    }
     return humanTarget({ names: [id] });
   }
   async function setStaging(on) {
@@ -48,6 +60,7 @@
       for (let i = 0; !ready && i < 160; i++) { if (i === 0) setSave(T('st.stage.loading'), ''); await new Promise((r) => setTimeout(r, 250)); ready = await SP.stage.enable(true).catch(() => false); }
       if (!ready) { setSave(T('st.stage.notReady'), 'err'); return; }
       setSave(T('st.stage.ready'), 'ok');
+      if(SP.stage.kind==='3d')await SP.stage.setGuides?.(gridWanted);
       stUnsub?.(); stUnsub = SP.stage.on(onStageEvent); SP.stage.setMode(stMode);
       try { codeEl.contentWindow.focus(); } catch { /* */ }
     } else {
@@ -62,6 +75,7 @@
   }
   let stUnsub = null;
   function onStageEvent(ev) {
+    if (['cutout', 'deselect'].includes(ev.type)) sceneElements.refresh(true);
     ev = plain(ev);   // (kept as the chosen object, in the notes: this page's own copy)
     const quiet = !!ev.quiet; delete ev.quiet;   // an undo or a redo putting its offset back (page/studio/00-remote.js)
     if (ev.type === 'change' && ev.id !== stSel?.id) return;   // an offset of the queue being re-applied
@@ -131,6 +145,7 @@
     c.querySelector('.tipr').innerHTML = T(two ? 'st.bar.cam2dTip' : cam ? 'st.bar.camOffTip' : 'st.bar.camTip') + (k ? `<kbd>${esc(k)}</kbd>` : '');
     $('#stCam0 .tipr').textContent = T(two ? 'st.s2.camResetTitle' : 'st.bar.cam0Tip');
     $('#stage').classList.toggle('freecam', staging && !two && freeCamOn);
+    const grid=$('#stGrid'); grid.style.display=staging && !two && cam?'':'none';grid.classList.toggle('on',gridWanted);grid.setAttribute('aria-pressed',String(gridWanted));
   }
   async function toggleFreeCam() {
     if (!staging || !SP?.stage) return;
@@ -147,6 +162,28 @@
   document.querySelectorAll('#ctlbar [data-sm]').forEach((b) => b.onclick = () => { if (!staging || !SP?.stage) return; stMode = b.dataset.sm; SP.stage.setMode(stMode); renderScene(); });
   $('#stCam').onclick = toggleFreeCam;
   $('#stCam0').onclick = resetCam;
+  $('#stGrid').onclick = toggleGrid;
+  function scopeFields() {
+    return `<div class="grid3" style="grid-template-columns:74px 1fr;margin-top:12px"><label class="lbl" for="sc-scope">${T('st.scene.scope')}</label><select id="sc-scope">
+          <option value="scene" ${stScope === 'scene' ? 'selected' : ''}>${T('st.scene.thisScene', { name: esc(sceneAt(curFrame()).name) })}</option>
+          <option value="here" ${stScope === 'here' ? 'selected' : ''}>${T('st.scene.fromHere')}</option>
+          <option value="all" ${stScope === 'all' ? 'selected' : ''}>${T('st.scene.all')}</option>
+          <option value="range" ${stScope === 'range' ? 'selected' : ''}>${T('st.scene.range')}</option></select></div>
+        <div class="range ${stScope === 'range' ? 'on' : ''}">${T('st.scene.frames')} <input type="number" id="sc-from" value="${stFrom}"> → <input type="number" id="sc-to" value="${stTo}"><button class="soft" id="sc-here">${T('st.scene.current')}</button></div>`;
+  }
+  function changeScope(e) {
+    stScope = e.target.value;
+    if (stScope === 'range' && !stTo) {
+      stFrom = curFrame();
+      stTo = Math.min(FRAMES - 1, stFrom + 3 * FPS);
+    }
+    // renderScene preserves a focused select, so update its dependent fields in place.
+    $('#scene .range').classList.toggle('on', stScope === 'range');
+    $('#sc-from').value = stFrom;
+    $('#sc-to').value = stTo;
+    const sc = scopeOf();
+    if (stSel) SP.stage.setDelta(stSel.id, stSel.delta, sc.from, sc.to);
+  }
   function renderScene() {
     markSceneBar(); if (staging) markStageBar(); else $('#stage').classList.remove('freecam');
     const box = $('#scene'); if (!box) return;
@@ -170,33 +207,31 @@
           <span class="lbl">${T('st.scene.rotation')}</span>${num('rx', deg(d.r[0]).toFixed(1), 1)}${num('ry', deg(d.r[1]).toFixed(1), 1)}${num('rz', deg(d.r[2]).toFixed(1), 1)}
           <span class="lbl">${T('st.scene.sizePct')}</span>${num('s', (d.s * 100).toFixed(1), 1)}<span></span><span></span></div>
         <p class="note2">${T(PROJ ? 'st.scene.unitsRun' : 'st.scene.units')}</p>
-        <div class="grid3" style="grid-template-columns:74px 1fr;margin-top:12px"><span class="lbl">${T('st.scene.scope')}</span><select id="sc-scope">
-          <option value="scene" ${stScope === 'scene' ? 'selected' : ''}>${T('st.scene.thisScene', { name: esc(sceneAt(curFrame()).name) })}</option>
-          <option value="here" ${stScope === 'here' ? 'selected' : ''}>${T('st.scene.fromHere')}</option>
-          <option value="all" ${stScope === 'all' ? 'selected' : ''}>${T('st.scene.all')}</option>
-          <option value="range" ${stScope === 'range' ? 'selected' : ''}>${T('st.scene.range')}</option></select></div>
-        <div class="range ${stScope === 'range' ? 'on' : ''}">${T('st.scene.frames')} <input type="number" id="sc-from" value="${stFrom}"> → <input type="number" id="sc-to" value="${stTo}"><button class="soft" id="sc-here">${T('st.scene.current')}</button></div>
+        ${scopeFields()}
         <div class="row"><button class="soft danger" id="sc-reset">${ic(sel.cutout ? 'trash' : 'undo')}${T(sel.cutout ? 'st.scene.cutRemove' : 'st.scene.reset')}</button><span class="grow"></span><button class="primary" id="sc-add">${ic('plus')}${T('st.scene.add')}</button></div>`
-      : `<div class="ttl">${T('st.scene.pickTitle')}</div>${howRows([['st.how.click', 'st.how.clickT'], ['st.how.drag', 'st.how.dragT'], ['st.how.shift', 'st.how.shiftT'], ['st.how.handles', 'st.how.handlesT'],
-        ...(freeCamOn ? [['st.bar.cam', 'st.how.freeT']] : []), ['st.how.esc', 'st.how.escT']])}`}
+      : `<div class="ttl">${T('st.scene.pickTitle')}</div>${howRows([['st.how.click', 'st.how.clickT'],
+        ...(freeCamOn ? [] : [['st.how.drag', 'st.how.dragT'], ['st.how.shift', 'st.how.shiftT']]),
+        ['st.how.handles', 'st.how.handlesT'], ['st.how.esc', 'st.how.escT']])}`}
     </div>
     <h3 class="sh">${ic('camera')}${T('st.scene.camTitle')}</h3>
     <div class="box">
       <div class="camst"><span class="dot ${freeCamOn ? 'free' : ''}"></span><span>${T(freeCamOn ? 'st.scene.camFree' : 'st.scene.camShot')}</span></div>
       <div class="row"><button class="soft ${freeCamOn ? 'on' : ''}" id="sc-cam">${ic('camera')}${freeCamOn ? T('st.scene.camOn') : T('st.scene.cam')}</button>
         <button class="soft" id="sc-cam0" title="${esc(T('st.scene.camResetTitle'))}">${ic('undo')}${T('st.scene.camReset')}</button></div>
-      ${freeCamOn ? howRows([['st.how.drag', 'st.cam.dragT'], ['st.cam.right', 'st.cam.rightT'], ['st.cam.wheel', 'st.cam.wheelT']]) + `<p class="note2">${T('st.scene.camNote')}</p>`
+      ${freeCamOn ? `<div class="row"><button class="soft ${gridWanted?'on':''}" id="sc-grid" aria-pressed="${gridWanted}" title="${esc(T('st.scene.gridTip'))}">${ic('grid3d')}${T('st.scene.grid')}</button></div>` : ''}
+      ${freeCamOn ? howRows([['st.how.click', 'st.cam.selectT'], ['st.cam.orbit', 'st.cam.dragT'], ['st.cam.right', 'st.cam.rightT'], ['st.cam.wheel', 'st.cam.wheelT']]) + `<p class="note2">${T('st.scene.camNote')}</p>`
         : `<p class="note2">${T('st.scene.camWhy', { key: esc(SC.show('freeCam')) })}</p>`}
     </div>` + listHtml();
     box.querySelectorAll('.modes button').forEach((b) => b.onclick = () => { stMode = b.dataset.m; SP.stage.setMode(stMode); renderScene(); });
     for (const k of ['x', 'y', 'z', 'rx', 'ry', 'rz', 's']) $('#sc-' + k)?.addEventListener('change', () => { const sc2 = scopeOf(); SP.stage.setDelta(stSel.id, readFields(), sc2.from, sc2.to); });
-    $('#sc-scope')?.addEventListener('change', (e) => { stScope = e.target.value; if (stScope === 'range' && !stTo) { stFrom = curFrame(); stTo = Math.min(FRAMES - 1, curFrame() + 3 * FPS); } const sc2 = scopeOf(); if (stSel) SP.stage.setDelta(stSel.id, stSel.delta, sc2.from, sc2.to); renderScene(); });
+    $('#sc-scope')?.addEventListener('change', changeScope);
     for (const k of ['from', 'to']) $('#sc-' + k)?.addEventListener('change', (e) => { if (k === 'from') stFrom = +e.target.value; else stTo = +e.target.value; const sc2 = scopeOf(); if (stSel) SP.stage.setDelta(stSel.id, stSel.delta, sc2.from, sc2.to); });
     $('#sc-here')?.addEventListener('click', () => { stTo = curFrame(); if (!stFrom) stFrom = curFrame(); renderScene(); });
     $('#sc-reset')?.addEventListener('click', () => { const id = stSel.id; SP.stage.reset(id); stSel = null; renderScene(); syncStage(); });
     $('#sc-add')?.addEventListener('click', addStageNote);
     $('#sc-cam').onclick = toggleFreeCam;
     $('#sc-cam0').onclick = resetCam;
+    $('#sc-grid')?.addEventListener('click',toggleGrid);
     bindList();
   }
   // the 2D panel (a run): x / y in pixels of the frame, one turn, the size; « Caméra » = the whole frame
@@ -210,12 +245,7 @@
           <span class="lbl">${T('st.scene.offset')}</span>${num('x', d.p[0].toFixed(0), 1)}${num('y', d.p[1].toFixed(0), 1)}${num('rz', deg(d.r[2]).toFixed(1), 1)}
           <span class="lbl">${T(cam ? 'st.s2.zoomPct' : 'st.scene.sizePct')}</span>${num('s', (d.s * 100).toFixed(1), 1)}<span></span><span></span></div>
         <p class="note2">${T(cam ? 'st.s2.camUnits' : 'st.s2.units', { w: CW, h: CH })}</p>
-        <div class="grid3" style="grid-template-columns:74px 1fr;margin-top:12px"><span class="lbl">${T('st.scene.scope')}</span><select id="sc-scope">
-          <option value="scene" ${stScope === 'scene' ? 'selected' : ''}>${T('st.scene.thisScene', { name: esc(sceneAt(curFrame()).name) })}</option>
-          <option value="here" ${stScope === 'here' ? 'selected' : ''}>${T('st.scene.fromHere')}</option>
-          <option value="all" ${stScope === 'all' ? 'selected' : ''}>${T('st.scene.all')}</option>
-          <option value="range" ${stScope === 'range' ? 'selected' : ''}>${T('st.scene.range')}</option></select></div>
-        <div class="range ${stScope === 'range' ? 'on' : ''}">${T('st.scene.frames')} <input type="number" id="sc-from" value="${stFrom}"> → <input type="number" id="sc-to" value="${stTo}"><button class="soft" id="sc-here">${T('st.scene.current')}</button></div>
+        ${scopeFields()}
         <div class="row"><button class="soft danger" id="sc-reset">${ic(sel.cutout ? 'trash' : 'undo')}${T(sel.cutout ? 'st.scene.cutRemove' : 'st.scene.reset')}</button>${cam || sel.cutout ? '' : `<button class="soft" id="sc-parent" title="${esc(T('st.s2.parentTitle'))}">${T('st.s2.parent')}</button>`}<span class="grow"></span><button class="primary" id="sc-add">${ic('plus')}${T('st.scene.add')}</button></div>`
       : `<div class="ttl">${T('st.scene.pickTitle')}</div>${howRows([['st.how.click', 'st.s2.clickT'], ['st.how.drag', 'st.s2.dragT'], ['st.s2.wheel', 'st.s2.wheelT'], ['st.s2.shiftWheel', 'st.s2.shiftWheelT'], ['st.how.esc', 'st.how.escT']])}`}
     </div>
@@ -227,7 +257,7 @@
     const fields = () => { const v = (k) => +($('#sc-' + k)?.value || 0); return { p: [v('x'), v('y'), 0], r: [0, 0, rad(v('rz'))], s: (v('s') || 100) / 100 }; };
     box.querySelectorAll('.modes button').forEach((b) => b.onclick = () => { stMode = b.dataset.m; SP.stage.setMode(stMode); renderScene(); });
     for (const k of ['x', 'y', 'rz', 's']) $('#sc-' + k)?.addEventListener('change', () => { const sc2 = scopeOf(); SP.stage.setDelta(stSel.id, fields(), sc2.from, sc2.to); });
-    $('#sc-scope')?.addEventListener('change', (e) => { stScope = e.target.value; if (stScope === 'range' && !stTo) { stFrom = curFrame(); stTo = Math.min(FRAMES - 1, curFrame() + 3 * FPS); } const sc2 = scopeOf(); if (stSel) SP.stage.setDelta(stSel.id, stSel.delta, sc2.from, sc2.to); renderScene(); });
+    $('#sc-scope')?.addEventListener('change', changeScope);
     for (const k of ['from', 'to']) $('#sc-' + k)?.addEventListener('change', (e) => { if (k === 'from') stFrom = +e.target.value; else stTo = +e.target.value; const sc2 = scopeOf(); if (stSel) SP.stage.setDelta(stSel.id, stSel.delta, sc2.from, sc2.to); });
     $('#sc-here')?.addEventListener('click', () => { stTo = curFrame(); if (!stFrom) stFrom = curFrame(); renderScene(); });
     $('#sc-reset')?.addEventListener('click', () => { const id = stSel.id; SP.stage.reset(id); stSel = null; renderScene(); syncStage(); });
@@ -239,15 +269,17 @@
   }
   // the objects moved and not yet in the queue, and the offsets waiting in the queue
   function listHtml() {
+    const elements = staging ? '<div data-sc-elements-slot></div>' : '';
     const live = SP?.stage ? SP.stage.list() : [], queued = drafts().filter((n) => n.stage);
-    if (!live.length && !queued.length) return '';
+    if (!live.length && !queued.length) return elements;
     const rows = [
       ...queued.map((n) => `<div class="item" data-note="${n.id}">${ic('send')}<span>${esc(n.stage.name ?? humanTarget({ names: [n.stage.id] }).name)}</span><span class="d">${T('st.scene.queued')}</span></div>`),
       ...live.filter((x) => !queued.some((n) => n.stage.id === x.id)).map((x) => `<div class="item" data-id="${esc(x.id)}">${ic('move')}<span>${esc(stageName(x.id, x).name)}</span><span class="d">${esc(x.cutout ? T('st.scene.cutNew') : x.dim === '2d' ? deltaWords2d(x.delta, x.id === '@camera') : deltaWords(x.delta))}</span></div>`),
     ];
-    return `<h3 style="margin:14px 6px 4px;font:600 11px var(--font-d);text-transform:uppercase;letter-spacing:.1em;color:var(--s9)">${T('st.scene.offsets')}</h3>${rows.join('')}`;
+    return elements + `<h3 style="margin:14px 6px 4px;font:600 11px var(--font-d);text-transform:uppercase;letter-spacing:.1em;color:var(--s9)">${T('st.scene.offsets')}</h3>${rows.join('')}`;
   }
   function bindList() {
+    sceneElements.bind();
     document.querySelectorAll('#scene .item[data-id]').forEach((el) => el.onclick = () => { if (staging) SP.stage.select(el.dataset.id); });
     document.querySelectorAll('#scene .item[data-note]').forEach((el) => el.onclick = () => showCard(el.dataset.note));
   }

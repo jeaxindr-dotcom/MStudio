@@ -47,6 +47,7 @@ try {
   assert.ok(!(await(await fetch(base+'/api/status')).json()).lots[1].claude);
   pass('Resignaler priorise le lot 2 pour wait en conservant son identifiant et ses captures. Lire la sortie ne vaut pas take');
   cli('take','2','--agent','codex');
+  await p.until("document.querySelector('#agentWho').textContent.includes('Lot 2 pris en charge par Codex') && document.querySelector('#agent').textContent.includes('Lot 2 pris en charge par Codex') && !document.querySelector('#agentConnect')",15000);
   await p.until("document.querySelector('#lots [data-lot=\"2\"] .st.taken') && !document.querySelector('#lots [data-lot=\"2\"] .lot-resignal')");
   assert.equal((await fetch(base+'/api/lots/resignal',{method:'POST',body:'{"lot":2}'})).status,409);
   assert.match(cli('wait','--timeout','2'),/LOT 1 REÇU/);

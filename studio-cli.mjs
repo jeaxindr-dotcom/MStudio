@@ -218,7 +218,7 @@ async function main() {
       changeReplies((r) => {
         if (r.lots[n] && r.lots[n].status !== 'open') { already = r.lots[n]; return; }
         const at = nowIso();
-        r.lots[n] = { status: 'taken', at };
+        r.lots[n] = { status: 'taken', at, ...(AG ? {agent:{id:AG.id,name:AG.name}} : {}) };
         for (const e of L.edits) { const x = (r.notes[e.id] ??= {}); x.status = 'working'; x.statusAt = at; }
       });
       if (already) die(t('cli.already', { n, status: already.status, at: already.at }));

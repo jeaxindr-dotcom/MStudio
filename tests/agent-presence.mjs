@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const code = fs.readFileSync(new URL('../page/studio/02-notes.js',import.meta.url),'utf8');
+const start=code.indexOf('  function agentPresence('), end=code.indexOf('\n  let repliesTxt',start);
+assert.ok(start>=0 && end>start);
+const presence=vm.runInNewContext(code.slice(start,end)+';agentPresence',{T:(key,{name,lot})=>[key,lot,name].filter(Boolean).join(':'),agentName:()=>'agent'});
+const taken=(lot,name)=>({lot,claude:{status:'taken',...(name?{agent:{name}}:{})}});
+assert.equal(presence({}).kind,'offline');
+assert.equal(presence({agent:{watching:true,agent:{name:'Codex'}},lots:[taken(7)]}).name,'Codex');
+assert.equal(presence({agent:{watching:false,lastLot:7,agent:{name:'Codex'}},lots:[taken(7)]}).text,'st.ag.claimedBy:7:Codex');
+assert.equal(presence({agent:{watching:false,lastLot:9,agent:{name:'Codex'}},lots:[taken(7)]}).text,'st.ag.claimed:7');
+assert.equal(presence({lots:[taken(3,'Claude'),taken(7,'Codex')]}).text,'st.ag.claimedBy:7:Codex');
+assert.equal(presence({agent:{lastLot:7,agent:{name:'Codex'}},lots:[{lot:7,claude:{status:'done'}}]}).kind,'offline');
+console.log('Écoute, attribution des lots et fin de traitement validées.');
+console.log('6 ok, 0 ko');

@@ -122,7 +122,7 @@ export async function launch({ port = 9333, headless = true, args = [], autoplay
     },
     until: async (expr, ms = 30000) => { const t0 = Date.now(); for (;;) { if (await page.eval(`return !!(${expr})`)) return true; if (Date.now() - t0 > ms) throw new Error(`timeout: ${expr}`); await new Promise((r) => setTimeout(r, 250)); } },
     shot: async (file) => { const { data } = await s('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(file, Buffer.from(data, 'base64')); return file; },
-    mouse: (type, x, y) => s('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 }),
+    mouse: (type, x, y, button = 'left') => s('Input.dispatchMouseEvent', { type, x, y, button, buttons: type === 'mouseReleased' ? 0 : {left:1,right:2,middle:4}[button], clickCount: 1 }),
     // modifiers: Alt 1, Ctrl 2, Meta 4, Shift 8 (a real key press, as the user's: it goes to the focused field first)
     key: (key, code, text, modifiers = 0) => s('Input.dispatchKeyEvent', { type: 'keyDown', key, code, text, modifiers, windowsVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : ({ Enter: 13, Escape: 27 }[key] ?? 0) }).then(() => s('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers })),
     type: (text) => s('Input.insertText', { text }),

@@ -306,6 +306,7 @@ export function createStage2d(D: Deps) {
   }
   return {
     kind: '2d', enable, select, selectParent, setMode, setDelta, reset,
+    elements: () => Array.from(root()?.querySelectorAll('[data-coulisses]') ?? [], describe),
     on: (fn: (ev: any) => void) => { listeners.add(fn); return () => listeners.delete(fn); },
     list: () => [...edits.values()].filter((e) => !isZero(e.delta) || cutouts.has(e.id)).map((e) => info(e.id)),
     info, get selected() { return selected; }, get enabled() { return on; },

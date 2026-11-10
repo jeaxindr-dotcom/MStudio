@@ -62,7 +62,9 @@ try {
   check((draft?.images ?? []).some((im) => im.label?.startsWith('après')) && draft?.mark?.kind === 'pin', 'with the after image and a pin on the object');
   // free camera
   await p.eval(`document.querySelector('#sc-cam').click(); return 1`); await sleep(300);
-  await p.mouse('mousePressed', at[0] + 200, at[1] - 100); for (let i = 1; i <= 12; i++) await p.mouse('mouseMoved', at[0] + 200 + i * 12, at[1] - 100 + i * 2); await p.mouse('mouseReleased', at[0] + 344, at[1] - 76);
+  await p.mouse('mousePressed', at[0] + 200, at[1] - 100, 'middle');
+  for (let i = 1; i <= 12; i++) await p.mouse('mouseMoved', at[0] + 200 + i * 12, at[1] - 100 + i * 2, 'middle');
+  await p.mouse('mouseReleased', at[0] + 344, at[1] - 76, 'middle');
   await sleep(800); await p.shot(path.join(shots, 'staging-2-freecam.png'));
   await p.eval(`document.querySelector('#sc-cam0')?.click(); return 1`); await sleep(400);
   await p.key('m', 'KeyM', 'm'); await sleep(500);
