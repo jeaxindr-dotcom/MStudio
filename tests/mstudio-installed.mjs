@@ -51,6 +51,16 @@ try {
   ws.onmessage=({data})=>{const msg=JSON.parse(data);if(map.has(msg.id)){map.get(msg.id)(msg);map.delete(msg.id);}};
   const evaluate=async expression=>{const n=++id,reply=new Promise(resolve=>map.set(n,resolve));ws.send(JSON.stringify({id:n,method:'Runtime.evaluate',params:{expression,returnByValue:true,awaitPromise:true}}));const r=await reply;if(r.result?.exceptionDetails||r.error)throw Error(JSON.stringify(r));return r.result.result.value;};
   await until(()=>evaluate("document.title==='MStudio' && document.querySelector('#reverseOpen')"));
+  await evaluate("document.querySelector('#reconstructOpen').click()");
+  await until(()=>evaluate("!!document.querySelector('#rcStart')"));
+  await evaluate("document.querySelector('#rcPath').value="+JSON.stringify(source)+";document.querySelector('#rcName').value='Motion Windows';document.querySelector('#rcMode').value='handoff';document.querySelector('#rcStart').click()");
+  const handoff=await until(()=>evaluate("document.querySelector('#rcVerify') && document.querySelector('#reconstructDialog pre').textContent"));
+  const brief=handoff.split('\n')[0].match(/([A-Z]:\\.*brief\.md)$/i)?.[1];
+  assert.ok(brief && brief.startsWith(profile+path.sep) && fs.existsSync(brief),'The installed reconstruction job actually writes its brief inside the test profile');
+  assert.ok(handoff.includes('layers.json') && fs.existsSync(path.join(path.dirname(brief),'index.json')));
+  await evaluate("document.querySelector('#rcCancel').click()");
+  await until(()=>evaluate("!document.querySelector('#rcVerify')"));
+  await evaluate("document.querySelector('#rcClose').click()");
   await evaluate("document.querySelector('#reverseOpen').click()");
   await until(()=>evaluate("!!document.querySelector('#rvPath')"));
   await evaluate("document.querySelector('#rvPath').value="+JSON.stringify(source)+"; document.querySelector('#rvName').value='Atelier Windows'; document.querySelector('#rvAnalyze').click()");
@@ -79,7 +89,7 @@ try {
   const video=media.streams.find(s=>s.codec_type==='video');
   assert.deepEqual([video.width,video.height,Number(video.nb_frames)],[320,180,24]);
   assert.ok(media.streams.some(s=>s.codec_type==='audio'));
-  console.log(JSON.stringify({app:exe,version:about.version,webviewTitle:await evaluate('document.title'),agent:'lot 1 reçu',export:result.file,frames:24,audio:true},null,2));
+  console.log(JSON.stringify({app:exe,version:about.version,webviewTitle:await evaluate('document.title'),reconstruction:'handoff prepared',agent:'lot 1 reçu',export:result.file,frames:24,audio:true},null,2));
 } finally {
   ws?.close();if(watcher?.exitCode===null)watcher.kill();
   if(app.exitCode===null) {
