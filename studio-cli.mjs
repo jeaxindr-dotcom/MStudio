@@ -27,16 +27,18 @@
 // there, no live preview (frame / sheet use the video), no staging, and no render from the studio.
 import fs from 'node:fs';
 import path from 'node:path';
-import { optionsFrom, readJson, readJsonStrict, writeJson, updateJson, nowIso, stillSource, pad3, flagsOf } from './lib/episode.mjs';
+import { optionsFrom, readJson, readJsonStrict, writeJson, updateJson, nowIso, stillSource, pad3 } from './lib/episode.mjs';
 import { syncUserReplies, pendingUserReplies, prepareUserReplyDelivery, acknowledgeUserReplyDelivery, writeDelivered } from './lib/reply-delivery.mjs';
 import { videoFrame, codeFrame, codeFrames, tile, closeCode, probeVideo } from './lib/frames.mjs';
-import { lotNumbers, readLot, lotFile, lotMarkdown, renderMarkdown } from './lib/lots.mjs';
+import { lotNumbers, readLot, lotFile, lotMarkdown, renderMarkdown, nextWaitingLot } from './lib/lots.mjs';
+import { cliCommand, cliArgs, cliTarget } from './lib/cli-command.mjs';
 import { resolveTarget } from './lib/projects.mjs';
 import { snapshot, finish, step, listRuns } from './lib/runs.mjs';
 import { runRender, markReviewed, PHASES } from './lib/render.mjs';
 import { checkUpdates, updatesLine, updatesMarkdown } from './lib/updates.mjs';
 import { detectAgent, agentById } from './lib/agent.mjs';
 import { t, hhmm } from './lib/i18n.mjs';
+import { assertReviewAvailable } from './lib/app-profile.mjs';
 // Machine markers, the same in both languages (agents and pipelines may look for them): « PROJET CONFORME »,
 // « PROJET NON CONFORME », « LOT N REÇU », « DEMANDE DE RENDU (lot N) REÇUE », « RENDU TERMINÉ », « RENDU ARRÊTÉ »,
 // « RENDU NON LANCÉ », « RENDU EN ÉCHEC », « CONTRÔLES PASSÉS », « RENDU FAIT (sans finition) ». English adds a gloss after them.
@@ -114,6 +116,7 @@ if (cmd === 'medias') {
 }
 if (!cmd || !epArg) die(t('cli.usage'));
 const P = resolveTarget(epArg, optionsFrom(argv));
+try { assertReviewAvailable(P.REVUE); } catch (error) { die(error.message); }
 const B = P.kind === 'brambleshire', CODE = B || P.kind === 'remotion' || P.kind === 'hyperframes';   // CODE: a live preview of the code exists
 // the video's frame rate, asked only by the commands that cut frames (frame, sheet): an ffprobe for every take / reply /
 // done / wait was not needed (code review 18/10/2026)
@@ -172,8 +175,8 @@ async function main() {
     case 'wait': {
       const beat = (waiting, lastLot) => writeJson(P.AGENT, { pid: process.pid, since, beat: nowIso(), waiting, lastLot: lastLot ?? null, agent: AG ? { id: AG.id, name: AG.name } : null });
       const since = nowIso(), limit = +(flag('--timeout', 0)) * 1000, t0 = Date.now();
-      const pendingLot = () => { const r = replies(); return lotNumbers(P).find((n) => !r.lots[n]); };
-      const again = () => t('cli.waitAgain', { cmd: `node "${process.argv[1]}" wait ${argv.slice(1).filter((a) => a !== 'wait').map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}` });
+      const pendingLot = () => nextWaitingLot(P, replies());
+      const again = () => t('cli.waitAgain', { cmd: cliCommand(process.argv[1]) + ' wait ' + cliArgs(argv.slice(1)) });
       let last = 0;
       const stop = () => { try { beat(false); } catch { /* ignore */ } process.exit(0); };
       process.on('SIGINT', stop); process.on('SIGTERM', stop);
@@ -302,7 +305,7 @@ async function main() {
       const only = String(flag('--only', PHASES.join(','))).split(',').map((x) => x.trim()).filter((x) => PHASES.includes(x));
       if (!only.length) die(`--only : ${PHASES.join(', ')}`);
       if (n) changeReplies((r) => { if (!r.lots[n]) r.lots[n] = { status: 'taken', at: nowIso() }; });
-      const again = `node "${process.argv[1]}" ${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`;
+      const again = cliCommand(process.argv[1]) + ' ' + cliArgs(argv);
       const S = await runRender(P, { lot: n, only, frames: flag('--frames'), out: flag('--out'), log });
       const hm = (iso) => (iso ? hhmm(iso) : '?');
       for (const c of S.checks) console.log(t('cli.check', { st: c.status === 'ok' ? t('cli.chkOk') : c.status === 'fail' ? t('cli.chkFail') : '…    ', label: c.label, detail: c.detail, judge: c.toJudge ? t('cli.judge', { n: c.toJudge }) : '' }));
@@ -311,7 +314,7 @@ async function main() {
       if (S.state === 'rendered') {
         const lu = S.finish?.loudness ?? {};
         console.log(t('cli.renderDone', { extra: `${S.video ? t('cli.renderVideo', { name: S.video.name }) : ''}${S.finish?.duration ? ` · ${S.finish.duration.toFixed(1)} s` : ''}${lu.I != null ? ` · Integrated ${lu.I} LUFS` : ''}${lu.peak != null ? ` · True peak ${lu.peak} dBTP` : ''}${S.finish?.remapped != null ? t('cli.remapped', { n: S.finish.remapped }) : ''}` }));
-        console.log(t('cli.renderNext', { next: n ? `node "${process.argv[1]}" done ${P.ep}${flagsOf(P) ? ' ' + flagsOf(P) : ''} ${n} "${t('cli.sawIt')}"` : t('cli.tellUser') }));
+        console.log(t('cli.renderNext', { next: n ? `${cliCommand(process.argv[1])} done ${cliTarget(P)} ${n} "${t('cli.sawIt')}"` : t('cli.tellUser') }));
         return;
       }
       if (S.state === 'checked' || S.state === 'rendered-raw') { console.log(t(S.state === 'checked' ? 'cli.checksPassed' : 'cli.rawDone')); return; }
@@ -328,7 +331,7 @@ async function main() {
     }
     case 'updates': {
       const u = await checkUpdates(P, { agent: AG ?? agentById('claude'), fresh: true });
-      console.log(updatesLine(u)); console.log(''); console.log(updatesMarkdown(u, { cli: `node "${process.argv[1]}"`, target: P.target }).join('\n'));
+      console.log(updatesLine(u)); console.log(''); console.log(updatesMarkdown(u, { cli: cliCommand(process.argv[1]), target: cliTarget(P) }).join('\n'));
       return;
     }
     case 'status': {

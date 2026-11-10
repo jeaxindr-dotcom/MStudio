@@ -184,6 +184,8 @@ await test('31/10 : une attente sans propriétaire jamais rendue ne masque plus 
   assert.equal(c.ready.ready(), false);
   c.clock.advance(11000); await Promise.resolve();
   assert.equal(c.ready.ready(), true, 'orpheline depuis plus de 6 s : l’image est montrée');
+  assert.equal(c.ready.status().verified, false);
+  assert.equal(c.ready.status().reason, 'stale-unowned-render-handles');
   c.clock.advance(25000); await Promise.resolve();
   assert.equal(result, 'succès'); assert.equal(c.events.some(e => e.type === 'ready-error'), false, 'aucun « aperçu planté »');
   c.ready.dispose?.();

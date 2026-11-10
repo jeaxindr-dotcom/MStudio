@@ -1,0 +1,64 @@
+/* Composition browser. Compact sidebars keep the selected tab's name and all five buttons. */
+#side { container-type: inline-size; container-name: studio-side; }
+@container studio-side (max-width: 440px) {
+  #side #tabs { overflow: visible; gap: 1px; }
+  #side #tabs button { flex: 1 1 0; min-width: 28px; padding-inline: 4px; }
+  #side #tabs button:not(.on) { font-size: 0; gap: 0; }
+  #side #tabs button:not(.on) .n { display: none; }
+  #side #tabs button:not(.on) svg { width: 15px; height: 15px; }
+  #side #tabs button.on { flex: 2.5 1 auto; }
+}
+#tab-composition { min-width: 0; color: var(--s12); }
+#tab-composition [hidden] { display: none; }
+.cx-tools { padding: 12px 12px 8px; display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 7px; }
+.cx-search, .cx-scenes { display: flex; align-items: center; min-width: 0; gap: 8px; }
+.cx-search { padding-inline: 9px; background: var(--glass-2); border: 1px solid var(--stroke-2); border-radius: 5px; }
+.cx-search:focus-within { outline: 1px solid var(--acc); }
+.cx-search svg { color: var(--s11); width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.cx-search input { width: 100%; min-width: 0; padding: 0; height: 30px; color: var(--s12); background: transparent; border: 0; outline: 0; font: 12px var(--font); }
+.cx-search input::placeholder { color: var(--s11); }
+.cx-at { height: 32px; width: 32px; justify-content: center; padding: 0; border-radius: 5px; color: var(--s11); }
+.cx-at[aria-pressed="true"] { color: var(--acc); border-color: var(--acc); }
+.cx-scenes { grid-column: 1 / -1; color: var(--s11); font-size: 11px; }
+.cx-scenes select { flex: 1; width: 0; min-width: 0; height: 26px; padding: 0 5px; color: var(--s12); color-scheme: dark; font: 11px var(--font); background: var(--glass-2); border: 1px solid var(--stroke); border-radius: 4px; }
+.cx-tree { flex: 1 1 auto; min-height: 45px; overflow: auto; overscroll-behavior: contain; padding: 0 8px 14px; scrollbar-width: thin; }
+.cx-tree details { margin-top: 2px; }
+.cx-tree summary { display: flex; align-items: center; gap: 7px; padding: 5px 6px; min-height: 30px; border-radius: 4px; cursor: pointer; font: 600 12px var(--font); list-style: none; }
+.cx-tree summary::-webkit-details-marker { display: none; }
+.cx-tree summary:hover, .cx-tree .cx-clip:hover { background: var(--glass-3); }
+.cx-tree summary > .ic { width: 12px; height: 12px; color: var(--s11); }
+.cx-tree details[open] > summary > .ic { transform: rotate(90deg); }
+.cx-tree summary > span:not(.cx-kind) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-tree summary small { margin-left: auto; font: 10px var(--mono); color: var(--s11); }
+.cx-kind { width: 7px; height: 7px; flex: none; border-radius: 2px; background: var(--sky, #8fcdff); }
+.cx-kind[data-kind="band"] { background: var(--violet, #b49cff); }
+.cx-kind[data-kind="audio"], .cx-kind[data-kind="voice"] { background: var(--mint, #6fe7c8); }
+.cx-kind[data-kind="light"], .cx-kind[data-kind="camera"] { background: var(--amber, #ffd27f); }
+.cx-tree .cx-clip { display: flex; width: calc(100% - 12px); margin-left: 12px; padding: 3px 7px 3px 15px; min-height: 26px; height: auto; border: 0; border-left: 1px solid var(--stroke-2); border-radius: 0; justify-content: space-between; gap: 8px; background: transparent; color: var(--s11); font: 12px var(--font); text-align: left; }
+.cx-clip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-clip time { flex: none; font: 10px var(--mono); }
+.cx-tree .cx-clip[aria-current="true"] { border-left-color: var(--acc); color: var(--s12); background: color-mix(in srgb, var(--acc) 10%, transparent); }
+.cx-clip.cx-off > span { text-decoration: line-through; }
+.cx-empty { padding: 12px 4px; color: var(--s11); font-size: 12px; }
+.cx-inspector { flex: 0 1 auto; max-height: 48%; overflow-y: auto; overflow-wrap: anywhere; padding: 10px 14px 12px; border-top: 1px solid var(--stroke-2); background: var(--glass-2); }
+.cx-detail-head { display: flex; align-items: center; gap: 6px; color: var(--s11); }
+.cx-detail-head small { font: 500 11px var(--font); }
+.cx-detail-head .cx-close { margin-left: auto; border: 0; width: 22px; height: 22px; padding: 3px; background: transparent; color: var(--s11); justify-content: center; }
+.cx-title { font: 600 13px/1.4 var(--font); }
+.cx-inspector dl { margin: 7px 0 10px; font-size: 11px; }
+.cx-inspector dl > div { display: grid; grid-template-columns: 64px 1fr; gap: 4px; padding-block: 2px; }
+.cx-inspector dt { color: var(--s11); }
+.cx-inspector dd { margin: 0; min-width: 0; }
+.cx-ends { display: flex; flex-wrap: wrap; gap: 6px; }
+.cx-ends button { height: 26px; padding: 0 8px; gap: 5px; border-radius: 4px; font: 11px var(--font); }
+.cx-ends .ic { width: 12px; height: 12px; }
+#tab-composition :is(button, summary, select):focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.cx-edit-actions { display:flex; gap:4px; flex-wrap:wrap; margin-top:8px; }
+.cx-edit-actions button { height:26px; font-size:10.5px; padding:0 7px; background:var(--glass); }
+.cx-edit-actions button[aria-expanded=true] { border-color:var(--acc); color:var(--acc); }
+.cx-timing { margin-top:8px; padding:9px; border:1px solid var(--stroke-2); border-radius:5px; background:var(--bg); }
+.cx-timing-fields { display:flex; gap:7px; }
+.cx-timing-fields label { display:grid; gap:3px; flex:1; min-width:0; color:var(--s11); font-size:11px; }
+.cx-timing-fields input { width:100%; min-width:0; height:28px; padding-inline:6px; color:var(--s12); background:var(--glass); border:1px solid var(--stroke-2); border-radius:3px; font:12px var(--mono); }
+.cx-timing output { display:block; margin:6px 0; color:var(--s11); font-size:10.5px; }
+.cx-timing .primary { height:27px; font-size:11px; }

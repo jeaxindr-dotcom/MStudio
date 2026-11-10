@@ -22,7 +22,7 @@ function verifier(faute, imageFixe) {
     shuttleBackStep() {}, M: { paused: true, currentTime: 0 }, shuttle: 0,
     curFrame: () => 1, view: { a: 0, b: 10 }, lastView: imageFixe ? 'ancienne vue' : '',
     lastF: imageFixe ? 1 : -1, pickPt: null, hideHover() {}, drag: null,
-    DUR: 10, FPS: 30, window: { __cgReady: true },
+    DUR: 10, FPS: 30, rangeStart:null, movePlayhead() {}, window: { __cgReady: true },
     requestAnimationFrame: (f) => file.push(f),
   };
   for (const nom of ['updateHud', 'draw', 'drawOv', 'showShot', 'cgTick']) {

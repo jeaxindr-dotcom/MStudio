@@ -28,7 +28,7 @@ for (const [name, run] of [
     }
   }],
   ['Autre copie, script ou commande : aucun argument ajouté', async () => {
-    for (const script of [path.resolve(root, '../remotion-studio/studio-server.mjs'), path.join(root, 'studio-cli.mjs'), path.join(root, 'tests/app.mjs'), null]) {
+    for (const script of [path.join(root, '.cache', 'other-copy', 'studio-server.mjs'), path.join(root, 'studio-cli.mjs'), path.join(root, 'tests/app.mjs'), null]) {
       const argv = script ? ['node', script] : ['node'], before = [...argv];
       assert.equal(await isolateServerPort(argv, {root, installed: false}), false);
       assert.deepEqual(argv, before);

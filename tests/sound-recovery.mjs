@@ -22,10 +22,16 @@ try {
   await arret(900); const origine = await adresse();
   await clic('bPlay'); await preuve(); passe('Lecture initiale avec une piste E03 active');
 
-  // Un échec de reprise du périphérique fait réellement muter Remotion.
+  // Un périphérique refuse la reprise après sa tentative d’ouverture. Le SDK
+  // 4.0.541 efface la promesse après son règlement : un rejet immédiat peut
+  // précéder l’abonnement de sa boucle de lecture et ne teste alors pas son mute.
   await clic('bPlay'); await attendreDans('!StudioPlayer.isPlaying() && __coulissesAudio[0].state === "suspended"');
   await dans(`const c = __coulissesAudio[0]; window.refus = [];
-    c.resume = async () => { refus.push(performance.now()); throw new DOMException('périphérique', 'InvalidStateError'); }`);
+    c.resume = async () => {
+      refus.push(performance.now());
+      await new Promise(resolve => setTimeout(resolve, 240));
+      throw new DOMException('périphérique', 'InvalidStateError');
+    }`);
   await clic('bPlay'); await attendreDans('StudioPlayer.isMuted() && refus.at(-1) - refus[0] >= 900');
   await p.until('/coupé/.test(document.querySelector("#save").textContent)');
   passe('Le Player se met en sourdine et la coupure est annoncée');

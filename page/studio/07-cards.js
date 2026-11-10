@@ -3,6 +3,19 @@
 // so they share their names as the one inline script did; hence the two-space indent.
   // ---------- modal ----------
   let modalLine = '';
+  let modalDeliveryLot = null, modalAck = null;
+  function showDeliveryModal(lot, title, line, detail, options = {}) {
+    showModal(title, FR ? 'Lot enregistré, en attente de prise en charge par l’agent. Tu peux copier la commande ci-dessous.' : 'Batch saved, awaiting pickup by the agent. You can copy the command below.', line, detail, options);
+    modalDeliveryLot = lot; syncDeliveryModal();
+  }
+  function syncDeliveryModal() {
+    if (!modalDeliveryLot) return;
+    const ack = STATUS.lots?.find(L => L.lot === modalDeliveryLot)?.claude?.status;
+    if (!['taken','done','declined'].includes(ack) || ack === modalAck) return;
+    modalAck = ack;
+    $('#mP1').textContent = lotState({claude:{status:ack}})[1] + ' · ' + T('st.rc.lot', {lot:modalDeliveryLot});
+    $('#modal').classList.add('received'); $('#mClose').className = 'primary'; $('#mCopy').className = 'soft';
+  }
   let modalUpdatesId = null;
   function setModalUpdates(text, ok) {
     const u = $('#mUpd'); u.textContent = text; u.className = 'upd' + (text ? ' on' : '') + (text && !ok ? ' todo' : '');
@@ -11,14 +24,14 @@
     if (!modalUpdatesId) return;
     const lot = STATUS.lots?.find((L) => L.captureState?.id === modalUpdatesId);
     if (lot?.updatesLine && !lot.updatesPending) {
-      setModalUpdates(lot.updatesLine, lot.updatesOk);
+      setModalUpdates(lot.updatesRepeated ? '' : lot.updatesLine, lot.updatesOk);
       modalUpdatesId = null;
     }
   }
   // updatesOk (from the server, lib/updates.mjs): the update line is calm only when everything is up to date
-  // received: the agent watching the tool already has it — nothing to paste: the line is folded away (« Afficher la
-  // ligne »), « Fermer » is the main button
+  // A delivery modal folds its command only after the agent acknowledges the batch.
   function showModal(title, p1, line, p2, { updates = '', updatesOk = false, pendingUpdatesId = null, pick = false, received = false } = {}) {
+    modalDeliveryLot = null; modalAck = null;
     $('#mT').textContent = title; $('#mP1').textContent = p1; $('#mLine').textContent = line; $('#mP2').textContent = p2 || ''; modalLine = line;
     $('#modal').classList.toggle('received', received && !!line);
     $('#mClose').className = received ? 'primary' : 'soft'; $('#mCopy').className = received ? 'soft' : 'primary';
@@ -45,7 +58,7 @@
   // ---------- note cards (Modifs = waiting to be sent ; Notes = the others) ----------
   // a plain Entrée (no Maj, Ctrl, Alt), not the one that confirms the characters of a Japanese or Chinese input
   function enterKey(e) { return e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && e.keyCode !== 229; }
-  function renderAll() { syncModalUpdates(); renderAgent(); renderQueue(); renderLots(); renderList(); renderInspector(); draw(); drawOv(); syncStage(); if (onTab('scene')) renderScene(); }
+  function renderAll() { syncModalUpdates(); syncDeliveryModal(); renderAgent(); renderQueue(); renderLots(); renderList(); renderInspector(); draw(); drawOv(); syncStage(); if (onTab('scene')) renderScene(); }
   function gestureHtml(n) {
     if (n.stage) return `<div class="gest">${ic('move')}<span class="obj">${esc(n.stage.name)}</span><span class="k">${esc(deltaWords(n.stage.delta))}</span></div>`;
     if (!n.mark && !n.target) return '';
@@ -79,6 +92,7 @@
         ${n.before?.length ? `<span title="${esc(T('st.card.movedTitle'))}">${T('st.card.before', { f: n.before[n.before.length - 1].frame })}</span>` : ''}</div>
       ${n.context?.scene || n.context?.lines?.length ? `<div class="ctx">${esc([n.context?.scene, ...(n.context?.lines ?? [])].filter(Boolean).join('\n'))}</div>` : ''}
       ${gestureHtml(n)}
+      ${n.previewReadiness ? `<small class="note-unverified">${FR ? 'Image non confirmée' : 'Unverified frame'} · #${esc(n.previewReadiness.frame)} · ${esc(readinessLabel(n.previewReadiness.reason))}</small>` : ''}
       <textarea class="main" placeholder="${esc(T('st.card.placeholder'))}">${esc(n.text)}</textarea>
       <div class="imgs mainimgs">${(n.images || []).map((img) => thumbHtml(img, true)).join('')}</div>
       <div class="acts">
@@ -208,6 +222,11 @@
     const emo = (L?.emotes ?? []).filter((e) => Math.abs(e.t - t) <= 1);
     const walking = Object.entries(L?.moves ?? {}).filter(([, evs]) => evs.some((e) => e.kind === 'walk' && e.t <= t && t <= e.t + e.dur)).map(([a]) => who(a));
     const none = '<span class="muted">—</span>';
+    rows.push(dl([
+      [T('st.insp.view'), mode === 'code' ? T('st.insp.viewCode') : T('st.src.video')],
+      [FR ? 'Format' : 'Format', `${CW} × ${CH} · ${FPS} ${FR ? 'i/s' : 'fps'}`],
+      [FR ? 'Durée' : 'Duration', fmt(DUR || 0)],
+    ]));
     if (PROJ) {
       const at = clipsAt(t);
       if (at.length) rows.push(dl(at.map(({ tr, c: k }) => [esc(tr.name), `${esc(k.label)}${k.off ? ` <span class="muted">${T('st.insp.disabled')}</span>` : ''}${k.file ? `<br><span class="muted">${esc(k.file)} · ${esc(tr.type === 'band' ? '' : inClip(tr, k, t))}</span>` : ''}`])));
@@ -233,7 +252,7 @@
         [T('st.insp.note'), T('st.insp.noteNum', { i, where: n.end !== null ? T('st.insp.frames', { a: n.frame, b: n.end }) : T('st.insp.frameAt', { a: n.frame }) })],
         [T('st.insp.state'), n.draft ? T('st.insp.stDraft') : st === 'working' ? T('st.insp.stWorking') : st === 'verified' ? TN('st.insp.stVerified') : st === 'done' ? T('st.insp.stDone') : T('st.insp.stOpen')],
         [T('st.insp.lot'), n.lot ? `${T('st.rc.lot', { lot: n.lot })}${n.sentAt ? ' · ' + esc(hhmm(n.sentAt)) : ''}` : none],
-        [T('st.insp.view'), PROJ ? null : n.source === 'code' ? T('st.insp.viewCode') : T('st.src.video')],
+        [T('st.insp.view'), n.source === 'code' ? T('st.insp.viewCode') : T('st.src.video')],
         [T('st.insp.ask'), esc(n.text || '—')],
         [T('st.insp.gesture'), esc(gest)],
         [T('st.insp.object'), PROJ && !t0 ? null : t0 ? `${esc(t0.name)} <span class="muted">${esc(t0.kind)}</span>` : none],

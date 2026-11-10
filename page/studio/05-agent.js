@@ -30,9 +30,8 @@
       HIST.back = []; HIST.fwd = []; HIST.last = null;   // a batch sent is not taken back with Ctrl+Z
       if (d.some((n) => n.stage)) setTimeout(() => setSave(T('st.send.offsets'), 'ok'), 1600);
       $('#qwords').value = ''; save();
-      showModal(T('st.send.title', { lot: res.lot, n: res.count }),
-        res.agent?.watching ? T('st.send.gotIt', { name: agentName() }) : T('st.send.paste', { name: agentName() }),
-        res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId, received: !!res.agent?.watching });
+      showDeliveryModal(res.lot, T('st.send.title', { lot: res.lot, n: res.count }),
+        res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId });
       setTab('lots');
     } catch (e) { setSave(T('st.send.failed', { msg: e.message }), 'err'); }
     sending = false; renderAll();
@@ -43,29 +42,44 @@
   // at the frame shown), its answers read from revue/replies.json like any note's (user's choice, 08/10/2026: « l'agent
   // connecté »: Coulisses starts nothing itself). A project made with « Nouveau projet » opens on this tab.
   const prompts = () => notes.filter((n) => n.kind === 'prompt').sort((a, b) => (a.created ?? '').localeCompare(b.created ?? ''));
-  async function sendPrompt() {
-    const ta = $('#agentText'), text = ta.value.trim();
-    if (!text || sending) return;
-    const n = { id: uid(), kind: 'prompt', frame: curFrame(), end: null, text, images: [], thread: [], status: 'open', created: now(), render: META.render, draft: true, source: mode };
-    stamp(n); notes.push(n); ta.value = ''; persist(); renderAgent();
+  const parallaxId = 'scene-parallax-v1';
+  async function sendPrompt(options = {}) {
+    const parallax = options.request === parallaxId, ta = $('#agentText');
+    let n = parallax ? byId(parallaxId) : options.retry ? byId(options.retry) : null;
+    const text = parallax ? options.text : n ? n.text : ta.value.trim();
+    if (!n && !parallax) n = prompts().find(item => item.draft && item.text === text);
+    if (!text || sending || !NOTES_OK) return false;
+    if (n?.lot && !n.draft) return true;
+    if (!n) {
+      n = { id: parallax ? parallaxId : uid(), kind: 'prompt', frame: curFrame(), end: null, text, images: [], thread: [], status: 'open', created: now(), render: META.render, draft: true, source: mode };
+      stamp(n); notes.push(n);
+    }
     sending = true; $('#agentSend').disabled = true;
+    if (!parallax && !options.retry) ta.value = '';
+    persist(); renderAgent();
     try {
       if (!(await flushNow())) throw new Error(T('st.send.notSaved'));
       const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [n.id], words: '', marks: {}, agent: AGENT_PICK, fps: FPS, size: [CW, CH] }) });
       const res = r.ok ? await r.json() : null;
       if (!res?.ok) throw new Error(r.ok ? T('st.send.emptyAnswer') : await r.text());
-      n.draft = false; n.lot = res.lot; n.sentAt = now(); HIST.back = []; HIST.fwd = []; HIST.last = null; persist();
-      if (!res.agent?.watching) showModal(T('st.ag.sentTitle', { lot: res.lot }), T('st.send.paste', { name: agentName() }), res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId });
-      else setSave(T('st.ag.sent', { name: agentName() }), 'ok');
+      n = byId(n.id) ?? n; n.draft = false; n.lot = res.lot; n.sentAt = now(); HIST.back = []; HIST.fwd = []; HIST.last = null; persist();
+      if (parallax) setSave((FR ? 'Demande enregistrée · lot ' : 'Request saved · batch ') + res.lot, 'ok');
+      else if (!res.agent?.watching) showDeliveryModal(res.lot, T('st.ag.sentTitle', { lot: res.lot }), res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId });
+      else setSave(T('st.ag.waiting') + ' · ' + T('st.rc.lot',{lot:res.lot}), 'ok');
     } catch (e) {
-      notes = notes.filter((x) => x.id !== n.id); persist(); ta.value = text;   // nothing sent: the words come back
+      // Keep this note and its immutable ID until status or a retry confirms it.
+      // The composer may already contain the user's next message.
       setSave(T('st.send.failed', { msg: e.message }), 'err');
     }
-    sending = false; $('#agentSend').disabled = false; renderAll();
+    sending = false; $('#agentSend').disabled = false; renderAll(); return !n.draft;
   }
   let agentSig = '';
   function renderAgent() {
     const box = $('#agentList'); if (!box) return;
+    for (const request of prompts().filter(n => n.draft)) {
+      const published = STATUS.lots?.find(L => L.ids?.includes(request.id));
+      if (published) { request.draft = false; request.lot = published.lot; request.sentAt = published.sentAt; persist(); }
+    }
     const a = STATUS.agent ?? {}, who = $('#agentWho');
     who.classList.toggle('on', !!a.watching);
     who.querySelector('.t').innerHTML = a.watching ? esc(T('st.ag.connected', { name: agentName() })) : `${esc(T('st.ag.notConnected'))} <button class="soft" id="agentConnect">${T('st.agent.connect')}</button>`;
@@ -74,7 +88,7 @@
     const busy = list.filter((n) => !n.draft && !fixedOf(n)).length;
     $('#nAgent').textContent = busy; $('#nAgent').classList.toggle('zero', !busy); $('#nAgent').classList.toggle('hot', busy > 0);
     $('#agentHint').textContent = T(a.watching ? 'st.ag.hintOn' : 'st.ag.hintOff');
-    const sig = JSON.stringify([list.map((n) => [n.id, n.draft, n.lot, statusOf(n), threadOf(n).length, lots[n.lot]?.claude?.status]), a.watching]);
+    const sig = JSON.stringify([list.map((n) => [n.id, n.draft, n.lot, statusOf(n), threadOf(n).length, lots[n.lot]?.claude?.status]), a.watching, sending]);
     if (sig === agentSig) return; agentSig = sig;
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
     if (!list.length) {
@@ -83,14 +97,16 @@
     }
     box.innerHTML = list.map((n) => {
       const st = statusOf(n), L = lots[n.lot];
-      const chip = n.draft ? `<span class="st wait">${T('st.ag.sending')}</span>`
+      const chip = n.draft ? `<span class="st wait">${sending ? T('st.ag.sending') : (FR ? 'Envoi non confirmé' : 'Delivery not confirmed')}</span>`
         : fixedOf(n) ? `<span class="st ok">${ic('check')}${T('st.ag.done')}</span>`
         : st === 'working' || L?.claude?.status === 'taken' ? `<span class="st work">${T('st.ag.working')}</span>`
-        : `<span class="st wait">${T(a.watching ? 'st.ag.sentOk' : 'st.ag.waiting')}</span>`;
+        : `<span class="st wait">${FR ? 'Envoyée · en attente de prise en charge' : 'Sent · awaiting pickup'}</span>`;
       const answers = threadOf(n).filter((m) => m.from === 'claude').map((m) => `<div class="it">${esc(m.text)}${m.images?.length ? `<div class="thumbs">${m.images.map((im) => `<img src="/${esc(im.file ?? im)}" data-full="/${esc(im.file ?? im)}" alt="">`).join('')}</div>` : ''}</div>`).join('');
-      return `<div class="ag" data-id="${n.id}"><div class="me">${esc(n.text)}</div><div class="meta">${n.lot ? T('st.rc.lot', { lot: n.lot }) + ' · ' : ''}${hhmm(n.created)} ${chip}</div>${answers}</div>`;
+      const retry = n.draft && !sending ? `<button type="button" class="soft" data-retry="${esc(n.id)}">${FR ? 'Réessayer' : 'Retry'}</button>` : '';
+      return `<div class="ag" data-id="${esc(n.id)}"><div class="me">${esc(n.text)}</div><div class="meta">${n.lot ? T('st.rc.lot', { lot: n.lot }) + ' · ' : ''}${hhmm(n.created)} ${chip} ${retry}</div>${answers}</div>`;
     }).join('');
     box.querySelectorAll('.thumbs img').forEach((im) => im.onclick = () => openLightbox(im.dataset.full));
+    box.querySelectorAll('[data-retry]').forEach(b => b.onclick = () => sendPrompt({retry:b.dataset.retry}));
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
   $('#agentSend').onclick = sendPrompt;
@@ -128,7 +144,35 @@
     }
     return r;
   }
+  let signalClock = null;
+  function deliveryControls(L, el) {
+    if (L.claude && L.claude.status !== 'open') return;
+    const area = el.querySelector('.acts'), status = document.createElement('div');
+    status.className = 'msg2'; status.dataset.delivery = 'waiting';
+    const time = Date.parse(L.signaledAt || L.sentAt);
+    const age = Date.now() - time;
+    status.textContent = L.signaledAt ? (FR ? 'Lot resignalé à ' : 'Batch flagged again at ') + hm5(new Date(L.signaledAt))
+      : FR ? 'En attente de prise en charge.' : 'Awaiting pickup.';
+    if (age >= 30000) status.textContent += FR ? ' Aucun accusé depuis 30 s ou plus.' : ' No acknowledgement for at least 30 s.';
+    else if (Number.isFinite(age) && !signalClock) signalClock = setTimeout(renderLots, Math.max(250, 30100 - age));
+    area.before(status);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'soft lot-resignal';
+    b.textContent = FR ? 'Resignaler ce lot' : 'Flag this batch again';
+    b.title = FR ? 'Prioriser ce même lot au prochain appel de studio-cli wait' : 'Prioritize this batch on the next studio-cli wait';
+    area.append(b);
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const response = await fetch('/api/lots/resignal', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lot:L.lot})});
+        if (response.status === 409) { status.textContent = FR ? 'Ce lot a déjà été pris en charge.' : 'This batch has already been picked up.'; return; }
+        if (!response.ok) throw new Error(String(response.status));
+        L.signaledAt = (await response.json()).at;
+        renderLots();
+      } catch (e) { status.textContent = (FR ? 'Échec du signalement · ' : 'Could not flag batch · ') + e.message; b.disabled = false; }
+    };
+  }
   function renderLots() {
+    if (signalClock) { clearTimeout(signalClock); signalClock = null; }
     const box = $('#lots'), lots = [...(STATUS.lots ?? [])].reverse();
     $('#nLots').textContent = lots.length; $('#nLots').classList.toggle('zero', !lots.length);
     $('#nLots').classList.toggle('hot', lots.some((L) => L.claude?.status === 'taken'));
@@ -148,7 +192,7 @@
         el.innerHTML = `<div class="lh"><b>${T('st.rc.render')}</b><span class="muted" style="font-size:12px">${T('st.lot.reqSub', { lot: L.lot, at: esc(hhmm(L.sentAt)) })}</span><span class="st ${cls}"><span class="dot"></span>${txt}</span></div>
           ${L.claude?.message ? `<div class="msg2">${esc(L.claude.message)}</div>` : ''}<div class="acts"><button class="soft cp">${ic('copy')}${T('st.lot.copy')}</button></div>`;
         el.querySelector('.cp').onclick = () => copy(L.line);
-        box.appendChild(el); continue;
+        deliveryControls(L,el); box.appendChild(el); continue;
       }
       const [cls, txt] = lotState(L), el = document.createElement('div'); el.className = 'lot'; el.dataset.lot = L.lot;
       const canUndo = L.run?.finished && L.run.state !== 'undone', canRedo = L.run?.state === 'undone';
@@ -164,7 +208,7 @@
       el.querySelector('.go').onclick = () => { const n = byId(L.ids[0]); if (n) { setLotF(L.lot, false); sel = n.id; M.pause(); seekFrame(n.frame); renderAll(); showCard(n.id); } };
       el.querySelector('.un')?.addEventListener('click', () => stepLot(L, 'undo', el.querySelector('.res')));
       el.querySelector('.re')?.addEventListener('click', () => stepLot(L, 'redo', el.querySelector('.res')));
-      box.appendChild(el);
+      deliveryControls(L,el); box.appendChild(el);
     }
   }
 

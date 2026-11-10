@@ -103,6 +103,7 @@ window.StudioPlayer = {
   pause: () => P()?.pause?.(), isPlaying: () => !!P()?.isPlaying?.(),
   frame: frameNow,
   frameReady: () => R.ready(), frameLoading: () => R.isLoading(), whenFrameReady: () => R.when(),
+  frameReadiness: () => R.status(),
   setVolume: (v) => { const p = P(); if (p?.setVolume) p.setVolume(v); else for (const m of media()) m.volume = v; },
   mute: () => { const p = P(); if (p?.setMuted) p.setMuted(true); else for (const m of media()) m.muted = true; },
   unmute: () => { const p = P(); if (p?.setMuted) p.setMuted(false); else for (const m of media()) m.muted = false; },

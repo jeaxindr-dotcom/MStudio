@@ -1,25 +1,23 @@
-# Contract: moving a video pipeline to Remotion, compatible with Coulisses
+# Integrating a Remotion project with MStudio
 
 *French version (the original): [FICHE-COULISSES-REMOTION.md](FICHE-COULISSES-REMOTION.md). The field names, the command names and their flags are French in both versions (`pistes`, `nom`, `de`, `a`, `projet creer`, `--depuis`…): they are an API, not text.*
 
-**To give to the session (Claude Code, Codex…) that maintains a channel's plugin or skill**: L'AItelier, Vidéo du monde (The Unfinished Atlas), Uchu-chan (宇宙ちゃん). Brambleshire Theatre is already in Remotion: Coulisses knows it, nothing to do here for it.
+Use this guide when adapting a Remotion project for review in MStudio.
 
-## The goal, in two sentences
+## Preview and review
 
-**Coulisses** is the user's review studio, formerly "Brambleshire Studio". It must be able to **review a run before any export**:
+MStudio can open a project before its first export.
 - it opens the run's `.coulisses` file;
 - it compiles the Remotion project and plays the composition live;
 - its timeline knows what each piece is ("this motion graphic, from this frame to that frame");
 - the user annotates, and their notes go to the agent in batches.
 
-No more waiting for an hour-and-a-half export to review.
-
-So **the video's edit must be a Remotion composition**, no longer a Resolve edit nor a HyperFrames composition, and the project must expose two small modules described below. HyperFrames compatibility will come later in Coulisses: for now, it is Remotion.
+The project supplies a list of compositions and a function describing their tracks.
 
 ## What to deliver (checklist)
 
-1. **One Remotion project per channel**, not per run. It is a folder with `package.json`, `node_modules`, `src/index.ts` (`registerRoot`) and `public/`.
-2. **One composition per run**, with a stable id, for example `AIT-2026-10-06-recap-ia-semaine`. The run's data (shots, texts, timing) live **in the project**, in `src/runs/<run>.ts` or in JSON imported by the code. The Coulisses preview reloads on every save.
+1. **A Remotion project** with `package.json`, `node_modules`, `src/index.ts` (`registerRoot`) and `public/`. Several compositions can share one project.
+2. **One composition per run**, with a stable id, for example `Example-01`. The run's data (shots, texts, timing) live **in the project**, in `src/runs/<run>.ts` or in JSON imported by the code. The MStudio preview reloads on every save.
 3. **`src/coulisses.ts`**: the list of compositions. It is the single source: the `Root` declares its `<Composition>` from it.
 4. **`src/coulisses-timeline.ts`**: the run's timeline, in frames, for Node. Data only: no component imported.
 5. **`data-coulisses="<readable name>"`** on the visible elements that matter (titles, cards, diagrams, parts of a motion graphic). A note pinned on them names them by itself.
@@ -33,10 +31,10 @@ So **the video's edit must be a Remotion composition**, no longer a Resolve edit
 
 ```ts
 import { MonRun } from './MonRun';
-import { RUN, totalFrames } from './runs/2026-10-06_recap-ia-semaine';
+import { RUN, totalFrames } from './runs/episode-01';
 export const compositions = [
-  { id: 'AIT-2026-10-06-recap-ia-semaine', component: MonRun, fps: 30, width: 1920, height: 1080,
-    durationInFrames: (props) => totalFrames(), defaultProps: { run: '2026-10-06_recap-ia-semaine' } },
+  { id: 'Example-01', component: MonRun, fps: 30, width: 1920, height: 1080,
+    durationInFrames: (props) => totalFrames(), defaultProps: { run: 'episode-01' } },
 ];
 ```
 
@@ -46,7 +44,7 @@ export const compositions = [
 ### `src/coulisses-timeline.ts` (Node: the timeline)
 
 ```ts
-import { RUN, totalFrames } from './runs/2026-10-06_recap-ia-semaine';
+import { RUN, totalFrames } from './runs/episode-01';
 export function timeline(compositionId: string, props: unknown) {
   return {
     fps: 30, durationInFrames: totalFrames(),
@@ -70,24 +68,24 @@ export function timeline(compositionId: string, props: unknown) {
   - `debut`: the offset in frames in the source media;
   - `volume` (optional, linear, 1 by default): the level at which the composition plays this audio clip, when it is not 1;
   - `off: true` for a disabled clip.
-- **The review sound**: while the live code is reviewed, Coulisses no longer lets the preview play the sound. It mixes the clips of the `audio` tracks itself with ffmpeg (`son`, `de`/`a`, `debut`, `volume`) into one track that the page plays as the clock; the muted preview follows it (the sound no longer cuts out when the picture lags). So the `audio` tracks must carry **all** of the film's sound at its levels: pre-mixed stems (voice, music, effects) are enough. A level that changes over time (ducking, fades) must be in the file itself. Without an `audio` track, the preview keeps its own sound. It can be turned off: `"reviewSound": false` in `%LOCALAPPDATA%Coulissessettings.json`.
+- **The review sound**: while the live code is reviewed, MStudio no longer lets the preview play the sound. It mixes the clips of the `audio` tracks itself with ffmpeg (`son`, `de`/`a`, `debut`, `volume`) into one track that the page plays as the clock; the muted preview follows it (the sound no longer cuts out when the picture lags). So the `audio` tracks must carry **all** of the film's sound at its levels: pre-mixed stems (voice, music, effects) are enough. A level that changes over time (ducking, fades) must be in the file itself. Without an `audio` track, the preview keeps its own sound. It can be turned off: `"reviewSound": false` in `%LOCALAPPDATA%\MStudio\settings.json`.
 - **Two clips at the same time on one track**: make two tracks.
 - **Everything visible on screen must appear in the timeline**, where it is visible.
 - **The timeline is computed from the same data as the composition**, never by hand: they cannot diverge.
 
 ## The run's `.coulisses` file
 
-It is created at **the start of the run**, in the run's folder, by Coulisses' command. The values go through a UTF-8 JSON file, never through non-ASCII text in the shell:
+It is created at **the start of the run**, in the run's folder, by MStudio's command. The values go through a UTF-8 JSON file, never through non-ASCII text in the shell:
 
 ```json
-{ "dossier": "C:\\Users\\owner\\Desktop\\Youtube\\AItelier\\long\\2026-10-06_recap-ia-semaine",
-  "titre": "Récap IA de la semaine", "chaine": "L'AItelier", "format": "16:9",
-  "projet": "<folder of the channel's Remotion project>", "composition": "AIT-2026-10-06-recap-ia-semaine",
-  "props": { "run": "2026-10-06_recap-ia-semaine" }, "export": "07-renders" }
+{ "dossier": "C:\\Videos\\Example\\episode-01",
+  "titre": "Episode 1", "chaine": "Example", "format": "16:9",
+  "projet": "C:\\Videos\\Example\\remotion", "composition": "Example-01",
+  "props": { "run": "episode-01" }, "export": "07-renders" }
 ```
 
 ```
-node "<CLI>" projet creer --depuis spec.json        → prints the path of the file "Récap IA de la semaine.coulisses"
+node "<CLI>" projet creer --depuis spec.json        → prints the path of the file "Episode 1.coulisses"
 node "<CLI>" projet verifier "<…>.coulisses"         → "PROJET CONFORME", or the list of the problems to fix
 ```
 
@@ -95,12 +93,12 @@ node "<CLI>" projet verifier "<…>.coulisses"         → "PROJET CONFORME", or
 - **`projet verifier`**:
   - runs the timeline under Node;
   - reads the composition;
-  - compiles the preview the way Coulisses does;
+  - compiles the preview the way MStudio does;
   - has Remotion render a frame, the check image, into `<run>\revue\images\`. **Look at it.**
 
   `--rapide` skips that render. `--images 1700,8000` renders the chosen frames instead of the middle one (useful when the middle falls inside a full-frame video).
 - **The verdict is a machine marker**, the same in both languages: `PROJET CONFORME` or `PROJET NON CONFORME`. In English, a gloss follows it (`PROJET CONFORME (compliant): …`), and the detail lines start with `ok`, `!` or `FAIL` (`ÉCHEC` in French).
-- **`<CLI>`** is Coulisses' command. It is `C:\Users\owner\AppData\Local\Programs\Coulisses\studio-cli.mjs`, and the exact path is repeated in each batch `.md`. A double-click on a `.coulisses` opens the run in Coulisses.
+- In PowerShell, use the Node runtime and CLI that ship with MStudio. Replace `node "<CLI>"` with `& "$env:LOCALAPPDATA\Programs\MStudio\runtime\node.exe" "$env:LOCALAPPDATA\Programs\MStudio\studio-cli.mjs"`. Open the `.coulisses` file from the library.
 - **The user's notes** go into `<run>\revue\` (`notes.json`, `lots\`…). The agent's protocol is `AGENT.en.md` (`AGENT.md` in French), next to `studio-cli.mjs`: the commands take the path `"<run>\revue"` instead of "E03".
 
 ## Remotion rules so that the preview is exactly the export
@@ -110,23 +108,23 @@ node "<CLI>" projet verifier "<…>.coulisses"         → "PROJET CONFORME", or
   - Never `Date.now()`.
   - Never a CSS animation nor a `setTimeout` to animate.
 - **Existing GSAP**: create the timeline **paused**, then `tl.seek(frame / fps)` in a `useLayoutEffect` on every frame. Never let it play by itself.
-- **No access to `window` or `document` when a file loads**, only in the components and their effects: Coulisses imports the modules under Node.
+- **No access to `window` or `document` when a file loads**, only in the components and their effects: MStudio imports the modules under Node.
 - **Videos**: `<OffthreadVideo>`, in H.264 MP4, or WebM VP9 for a video with transparency.
   - **QuickTime Animation (`qtrle`, the overlay `.mov` files) does not play in Chrome**. Convert it once: `ffmpeg -i overlay.mov -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 0 -crf 30 overlay.webm`.
 - **Sounds**: `<Audio>` with `volume` (a constant or a function of the frame). The voice, the music and the sound effects can stay pre-mixed files.
-- **Composition id**: letters, digits and `-` only. Remotion refuses `_`: `short11_biosignature` becomes `UCHU-short11-biosignature`.
+- **Composition ID**. Use letters, numbers and hyphens, for example `Example-01`.
 - **Fonts**: `@remotion/google-fonts`, or a local font loaded before the render (`@remotion/fonts`).
-- **Versions**: `remotion` and every `@remotion/*` at **the same exact version**, without `^`. **`@remotion/player` must be installed**: it is Coulisses' preview. Upgrades are done with `npx remotion upgrade`, then a check.
+- **Versions**: `remotion` and every `@remotion/*` at **the same exact version**, without `^`. **`@remotion/player` must be installed**: it is MStudio's preview. Upgrades are done with `npx remotion upgrade`, then a check.
 - **Recommended official skills**: `npx skills add remotion-dev/skills -g` (`remotion-best-practices`, `remotion-upgrade`…).
 - **Render**:
   - `npx remotion render src/index.ts <composition> "<run>\07-renders\master.mp4" --props=<file.json> --browser-executable="C:/Program Files/Google/Chrome/Application/chrome.exe" --gl=angle`, then the channel's usual sound finish (loudnorm);
-  - **on this PC, if `public\` holds a junction** (`mklink /J` to a run's media), that form fails (`EPERM symlink`): Remotion copies `public\` into its bundle and recreates the junctions as symbolic links, which are forbidden without developer mode. You then have to prepare the bundle yourself, with an empty `public` folder, then make `<bundle>\public` a junction to the project's `public\`, and render from that bundle (`npx remotion render <bundle> <composition> …`). That is what Coulisses does for its frames, and the `bundle.mjs` / `prepare-stills.cjs` scripts of the L'AItelier and Vidéo du monde projects. Before rebuilding the bundle, remove the junction with `cmd /c rmdir "<bundle>\public"`, never with a recursive delete;
-  - **only on the user's order**, once the review is done in Coulisses;
-  - the export must land in the `.coulisses` file's `export` folder. Coulisses loads it by itself, and offers "Compare before / after".
+  - If Windows reports `EPERM symlink` while copying a junction in `public/`, supply a staging directory containing the media files or link the bundle’s `public/` to the project’s actual public directory.
+  - **only on the user's order**, once the review is done in MStudio;
+  - the export must land in the `.coulisses` file's `export` folder. MStudio loads it by itself, and offers "Compare before / after".
 
-## The export script: what Coulisses runs when the user clicks "Export"
+## The export script: what MStudio runs when the user clicks "Export"
 
-The channel's Remotion project provides **`scripts\coulisses-rendu.mjs`**. Coulisses runs it from the project's folder, when the user asks for it (the Batches tab, or Tools › Export in the menu bar), never by itself:
+The channel's Remotion project provides **`scripts\coulisses-rendu.mjs`**. MStudio runs it from the project's folder, when the user asks for it (the Batches tab, or Tools › Export in the menu bar), never by itself:
 
 ```
 node scripts/coulisses-rendu.mjs --composition <id> --props "<props.json>" --dossier "<export folder of the .coulisses>" --titre "<title>"
@@ -136,24 +134,24 @@ The script:
 - **prepares the bundle** without breaking the junctions of `public\` (see above), with `--browser-executable="C:/Program Files/Google/Chrome/Application/chrome.exe" --gl=angle`;
 - **renders then finishes** the way the channel does: loudness, 4K, joining the pieces…;
 - **chooses the name** of the final file by the channel's habits (`master.mp4`, `<Name>-1080p.mp4`, `shortNN_4k_final.mp4`…);
-- **writes first to a `….tmp.mp4` file**, then renames it at the end: Coulisses never loads a file being written;
-- **if it replaces a file that already exists** (the same name as the last export, which Coulisses may be showing): it first prints `COULISSES REMPLACE "<path>"`, then retries the rename for at least 60 s. Coulisses then lets go of the video (Windows refuses to replace an open file), and takes it back at the end of the export;
+- **writes first to a `….tmp.mp4` file**, then renames it at the end: MStudio never loads a file being written;
+- **if it replaces a file that already exists** (the same name as the last export, which MStudio may be showing): it first prints `COULISSES REMPLACE "<path>"`, then retries the rename for at least 60 s. MStudio then lets go of the video (Windows refuses to replace an open file), and takes it back at the end of the export;
 - **prints its progress** on the standard output, one line per step or per percent: `COULISSES PROGRES <0-100> <step>` (e.g. `COULISSES PROGRES 42 rendu`), and ends with **`COULISSES FIN "<path of the final file>"`**. These three markers are the same in every language;
-- **tells its frames**, when it knows them: `COULISSES IMAGES <done> <total>` (e.g. `COULISSES IMAGES 12345 34019`), at most once a second while rendering. Coulisses shows them as "frame 12,345 / 34,019" and the time left; without it, the percentage;
+- **tells its frames**, when it knows them: `COULISSES IMAGES <done> <total>` (e.g. `COULISSES IMAGES 12345 34019`), at most once a second while rendering. MStudio shows them as "frame 12,345 / 34,019" and the time left; without it, the percentage;
 - **exits with code 0** if it succeeded, otherwise with another code and the error on the standard error;
-- **can be stopped at any time**: Coulisses then ends the process and its children. Only a `….tmp.mp4` is left, never a false final file.
+- **can be stopped at any time**: MStudio then ends the process and its children. Only a `….tmp.mp4` is left, never a false final file.
 
-The `.coulisses` must have an `export` folder, otherwise Coulisses does not offer the export.
+The `.coulisses` must have an `export` folder, otherwise MStudio does not offer the export.
 
-**The export variants** (one button each in Coulisses, and one entry each under Tools › Export): `node scripts/coulisses-rendu.mjs --options` prints a JSON array on the standard output, then exits at once, without rendering anything:
+**The export variants** (one button each in MStudio, and one entry each under Tools › Export): `node scripts/coulisses-rendu.mjs --options` prints a JSON array on the standard output, then exits at once, without rendering anything:
 
 ```json
 [{ "id": "test", "label": "Test render (1080p)" }, { "id": "final", "label": "Export in 4K" }]
 ```
 
-Coulisses then runs the script again with `--qualite <id>` for the chosen variant. Every project shows the same choice, **1080p | 4K**, and the same "Start the render" button: the ids `1080p` and `4k` are that choice (a quality the script does not have is greyed, with the reason). Without those ids, Coulisses reads the labels: "4K", "2160" or "UHD" goes to 4K, "1080" to 1080p — an export first, a test or a replacement only when nothing else is that size (宇宙ちゃん: `final` = "Exporter (4K final)" → 4K, `test` = "Rendu test (1080p)", a whole video in 1080p → 1080p); with none of that, "1080p" runs the first element that is neither a test nor a replacement; any other id (a variant of the project's own, `test`…) is added to the choice with its label. The labels are shown as they are: write them in the user's language. Without `--options` (the script does not know it, or returns anything other than an array), Coulisses shows a single button, "Export the video" ("Exporter la vidéo" in French), without `--qualite`.
+MStudio passes the selected ID with `--qualite <id>`. The IDs `1080p` and `4k` specify the resolution. A label can also identify the resolution of a variant such as `final`. Use `scope: "full"` for an entire film or `scope: "excerpt"` for an excerpt. A script that does not implement `--options` retains its default export.
 
-**The GPU, by default.** Coulisses tells the script which encoder to use, through the environment variable **`COULISSES_GPU`**: `nvenc` (Windows, Linux: an NVIDIA card whose encoder really works, checked by a test encode), `videotoolbox` (macOS), or `cpu` (no GPU encoder, or the user unticked "Encode with the GPU"). A script that does not know it ignores it and works as before. When it is not `cpu`, the script should:
+**The GPU, by default.** MStudio tells the script which encoder to use, through the environment variable **`COULISSES_GPU`**: `nvenc` (Windows, Linux: an NVIDIA card whose encoder really works, checked by a test encode), `videotoolbox` (macOS), or `cpu` (no GPU encoder, or the user unticked "Encode with the GPU"). A script that does not know it ignores it and works as before. When it is not `cpu`, the script should:
 
 - encode with the GPU: `renderMedia({ …, hardwareAcceleration: 'required', videoBitrate })`, **without `crf`** (a hardware encoder does not take it); suggested bitrate 50 Mbit/s in 4K, 20 Mbit/s in 1080p;
 - capture the frames as **JPEG quality 100** (`imageFormat: 'jpeg', jpegQuality: 100`) rather than PNG: compressing each frame to PNG costs more than everything else;
@@ -161,22 +159,20 @@ Coulisses then runs the script again with `--qualite <id>` for the chosen varian
 - if it still encodes by itself with ffmpeg (a 1080p drawn from the 4K…), use `-c:v h264_nvenc -b:v 20M`;
 - **go back to the CPU** (`crf`, x264) if the GPU fails, and say so in its log.
 
-Measured on 14/10/2026 (a 4K Video du monde film, RTX 5090, Ryzen 9 9950X3D, the same frames): PNG + x264, 4 Chromes: 6.5 frames/s; JPEG + NVENC, 4 Chromes: 11.4; 6 Chromes: 14.8; 8 Chromes: 15.9. Quality against Chrome's lossless frames: x264 crf 17 SSIM 0.992, NVENC 50 Mbit/s 0.993.
-
 ## A 3D shot rendered elsewhere and edited in as a video ("utilise")
 
-When a 3D scene is made in another Remotion project (Uchu-chan's theatre, for example), then rendered to MP4 and edited into the run as a video, the run only sees a flat picture. To rework it in 3D:
+A 3D shot can have its own Remotion project and descriptor. To edit it from a composition which uses its rendered MP4, link the two projects.
 
-1. **The scene's project** has its own `src/coulisses.ts` (its shots' compositions) and, if possible, `src/coulisses-timeline.ts`. If it uses React Three Fiber, Coulisses gives it the Theatre's 3D staging by itself: pick an object, move it, turn it, and the free camera.
+1. **The scene's project** has its own `src/coulisses.ts` (its shots' compositions) and, if possible, `src/coulisses-timeline.ts`. If it uses React Three Fiber, MStudio gives it the Theatre's 3D staging by itself: pick an object, move it, turn it, and the free camera.
 2. **Each shot has its own `.coulisses`**, in its own folder (one `revue` folder per shot), with in addition:
 
 ```json
-"utilise": [{ "coulisses": "C:\\…\\shorts\\short12\\short12.coulisses", "fichier": "public/short12/mg/chibi1.mp4" }]
+"utilise": [{ "coulisses": "C:\\Videos\\Example\\episode-01\\episode-01.coulisses", "fichier": "public/episode-01/shots/scene.mp4" }]
 ```
 
 `coulisses` is the `.coulisses` of the run that shows this shot. `fichier` is the shot's file in that run, as its timeline gives it, relative to the run's Remotion project.
 
-3. **In the run's studio**, on that clip, an "Open the 3D scene" button opens the shot in its own studio. The shot must be imported in the Coulisses home screen.
+3. **In the run's studio**, on that clip, an "Open the 3D scene" button opens the shot in its own studio. The shot must be imported in the MStudio home screen.
 4. **The shot's batch** tells the agent where its render goes: render the composition again and replace that file of the run, with the same name, format and length.
 
 `studio-cli.mjs projet creer --depuis spec.json` accepts `utilise` in the JSON file.
@@ -184,54 +180,36 @@ When a 3D scene is made in another Remotion project (Uchu-chan's theatre, for ex
 ## How to migrate without redoing everything at once
 
 1. **First the edit**. The Resolve edit becomes a Remotion composition: one `<Sequence>` per clip, one track per layer.
-   - **The pieces already rendered as MP4** (scenes, MetaHuman presenter) go in as they are, as `<OffthreadVideo>`. Coulisses can then review the whole edit straight away.
+   - **The pieces already rendered as MP4** (scenes, MetaHuman presenter) go in as they are, as `<OffthreadVideo>`. MStudio can then review the whole edit straight away.
    - **The Resolve effects** are redone in CSS: blur and darkening with `filter: blur() brightness()` on a copy of the layer, the 9:16 frame through the layout.
-2. **Then, scene by scene**, the HTML or HyperFrames scenes become React components. They are the ones that gain the most: fixed in the code, they are reviewed again at once in Coulisses, without a render.
+2. **Then, scene by scene**, the HTML or HyperFrames scenes become React components. They are the ones that gain the most: fixed in the code, they are reviewed again at once in MStudio, without a render.
 3. **The timeline** keeps the tracks the user knows (chapters, shots, presenter, overlays, voice, music, sound effects), computed from the same data as the composition.
 
 ## Until Remotion: the "video" `.coulisses`
 
-Coulisses can also open a run that is not in Remotion. **No plugin uses it**: on 07/10/2026 the user chose to move L'AItelier, Vidéo du monde and 宇宙ちゃん to Remotion (rewritten in React), the `.coulisses` being created when the agent starts coding the edit. This variant stays available for a one-off case. Coulisses then opens the run **on its video**, as soon as a render arrives, with the timeline the pipeline writes. The notes already go into `<run>\revue\`.
+A video project can open as soon as its export is available. Its descriptor identifies the video and timeline, and its `revue/` folder holds the notes.
 
 ```
 node "<CLI>" projet creer --moteur video --dossier "<run>" --nom <slug> --titre "<title or slug>" --chaine "<channel>" --format 16:9
      --export "07-publish|06-video/renders" --motif "-(1080p|2160p)\.mp4$" --plan 06-video/coulisses-timeline.json
 ```
 
-- **`--export`**: the folder or folders where the run's renders land, separated by `|`, relative to the run (`..\<neighbour folder>` is allowed). **`--motif`**: the expression that recognises a render to review, not the drafts nor the pieces. `--profondeur N` also looks in N levels of subfolders (0 by default). Coulisses takes the newest, **never a file written less than 20 s ago** (a render in progress).
+- **`--export`**: the folder or folders where the run's renders land, separated by `|`, relative to the run (`..\<neighbour folder>` is allowed). **`--motif`**: the expression that recognises a render to review, not the drafts nor the pieces. `--profondeur N` also looks in N levels of subfolders (0 by default). MStudio takes the newest, **never a file written less than 20 s ago** (a render in progress).
 - **`--plan`** (optional): the timeline. It may not exist yet: it appears when the pipeline writes it. Two formats:
-  - Coulisses' format, in frames: `{ "fps": 30, "durationInFrames": N, "pistes": [{ "id", "nom", "type": "video|audio|band", "clips": [{ "de", "a", "label", "fichier" }] }] }`;
-  - L'AItelier's montage plan (`08-montage\plan-montage.json`).
+  - MStudio's format, in frames: `{ "fps": 30, "durationInFrames": N, "pistes": [{ "id", "nom", "type": "video|audio|band", "clips": [{ "de", "a", "label", "fichier" }] }] }`;
+  - the montage-plan format with `08-montage/plan-montage.json`.
 - **`--nom`** sets the file's name (`<slug>.coulisses`). Running `projet creer` again with the same `--nom` **updates** the file (the title known later, for example): the creation date, the export and the plan already written are kept.
 - **The day of the move to Remotion**: `projet creer --nom <slug> --projet … --composition …` on the same run turns that file into a Remotion run, with the same notes. The reverse is refused.
-- **Never blocking**: if Coulisses is missing or too old, the pipeline prints a notice and goes on.
+- **Never blocking**: if MStudio is missing or too old, the pipeline prints a notice and goes on.
 
-## Per channel
+## Try it on your project
 
-**Decision of 07/10/2026**: L'AItelier (Short and long), Vidéo du monde and 宇宙ちゃん (Short and long) move to Remotion, rewriting their edit in React. The `.coulisses` is created **when the agent starts coding the edit** of the run. The music channels are not concerned.
-
-The move to Remotion, channel by channel:
-
-- **L'AItelier** (`C:\Users\owner\Desktop\Claude Plugin\laitelier-studio`, production copy):
-  - `08-montage\plan-montage.json` already holds the whole edit (V1, V2, V3, A1-A3, chapters, frame ranges): it is the composition's data.
-  - The overlays of `10-overlays\*.mov` are `qtrle`: they must be converted.
-  - the `.coulisses` is created at the start of the coded edit (`projet creer` with `--projet` and `--composition`). **The user wants to see the change before it is made.**
-  - The rule "the human exports from Resolve" becomes "Remotion render on the user's order".
-- **Vidéo du monde** (`C:\Users\owner\.agents\plugins\plugins\video-du-monde-studio`) and **Uchu-chan** (`C:\Users\owner\.claude\skills\uchuchan-short`):
-  - HyperFrames compositions rendered by the `hyperframes` CLI (no Resolve), to be rewritten as React components;
-  - the `.coulisses` is created at the start of the coded edit (`projet creer` with `--projet` and `--composition`);
-  - **show the change to the user first**.
-
-## The example that works
-
-A small complete project that follows this contract, generated by `node tests\coulisses-fixture.mjs` in the Coulisses workshop. It passes `projet verifier` and opens in Coulisses before any export:
-- **the Remotion project**: `C:\Users\owner\Documents\ChatGPT\Dev\remotion-studio\.cache\coulisses-test\remotion-essai\`, with `src\coulisses.ts`, `src\coulisses-timeline.ts`, `src\Root.tsx`, `src\Video.tsx` (with `data-coulisses`) and `src\runs\essai.ts`;
-- **the run**: `C:\Users\owner\Documents\ChatGPT\Dev\remotion-studio\.cache\coulisses-test\runs\2026-10-07_essai\Essai de Coulisses.coulisses`.
+Create a Remotion project from the library and open its folder. It contains the `.coulisses` descriptor, `src/coulisses.ts`, `src/coulisses-timeline.ts`, the entry point and the export script. Copy the connection command from the Agent panel to verify your installation.
 
 ## What not to do
 
-- **Write `revue\notes.json`**: it belongs to the Coulisses page. The agent writes only through `studio-cli.mjs` (`replies.json`).
+- **Write `revue\notes.json`**: it belongs to the MStudio page. The agent writes only through `studio-cli.mjs` (`replies.json`).
 - **Write the timeline by hand**, or let it diverge from the composition.
 - **Leave a visible element out of the timeline**, or a media outside `public/`.
 - **Render without the user's order.**
-- **Update Remotion or the skills without their consent**: Coulisses checks those updates with every batch, and the agent offers them as a multiple-choice question.
+- **Update Remotion or the skills without their consent**: MStudio checks those updates with every batch, and the agent offers them as a multiple-choice question.

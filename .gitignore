@@ -1,6 +1,7 @@
 # Coulisses : ce qui se refait ou se régénère (≈ 3 Go), hors du dépôt
 .cache/
 sandbox/
+/Projets/
 node_modules/
 *.log
 

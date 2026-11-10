@@ -115,6 +115,7 @@ const Framed: React.FC<any> = (p) => React.createElement('div', { id: 'coulisses
   dispose: () => { ref?.pause(); S.dispose(); R.dispose(); root.unmount(); ref = null; },
   frame: () => suspended ? suspendedFrame : ref?.getCurrentFrame() ?? 0,
   frameReady: () => !suspended && R.ready(), frameLoading: () => R.isLoading(), whenFrameReady: () => R.when(),
+  frameReadiness: () => suspended ? {state:'unavailable',reason:'suspended',verified:false,displayable:false} : R.status(),
   crashed: () => C.crashed, recover: (f?: number) => C.recover(f ?? ref?.getCurrentFrame() ?? 0),
   __crash: () => { C.crashNext(); const f = ref?.getCurrentFrame() ?? 0; ref?.seekTo(f + 1); ref?.seekTo(f); },
   setVolume: S.setVolume, mute: () => S.mute(), unmute: () => S.unmute(), isMuted: () => !!ref?.isMuted(), restoreSound: () => S.restore(), soundLost: () => S.lost(),

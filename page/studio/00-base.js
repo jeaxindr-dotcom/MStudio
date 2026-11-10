@@ -28,8 +28,7 @@
   // evening of edits by the agent, the studio slower and slower, « Accueil » long to come)
   const plain = (x) => (x === null || x === undefined ? x : JSON.parse(JSON.stringify(x)));
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const store = { get: (k, d) => { try { const x = localStorage.getItem('studio.' + k); return x === null ? d : JSON.parse(x); } catch { return d; } },
-    set: (k, x) => { try { localStorage.setItem('studio.' + k, JSON.stringify(x)); } catch { /* private window */ } } };
+  const store = sharedAppearance;
 
   // ---------- line icons (after Lucide, ISC licence) ----------
   const ICONS = {
@@ -84,9 +83,9 @@
   // three columns: the agent's (--lside, on the left), the image, the media and notes (--side, on the right); the image
   // keeps at least IMG_MIN px: on a narrow window the two panels give way, in proportion (what was dragged is kept)
   const root = document.documentElement;
-  const L_MIN = 280, S_MIN = 300, IMG_MIN = 420, CHROME = 12 * 2 + 56 + 12 * 2;   // #app's padding, the rail, the two splitters
+  const L_MIN = 280, S_MIN = 300, IMG_MIN = 420, CHROME = 6 * 2 + 46 + 6 * 2;   // #app's padding, the rail, the two splitters
   function applySizes() {
-    let l = store.get('lside', 340), s = store.get('side', 430);
+    let l = store.get('lside', 300), s = store.get('side', 340);
     const room = window.innerWidth - CHROME - IMG_MIN;
     if (l + s > room) { const k = Math.max(0, room - L_MIN - S_MIN) / Math.max(1, l - L_MIN + s - S_MIN); l = L_MIN + (l - L_MIN) * Math.min(1, k); s = S_MIN + (s - S_MIN) * Math.min(1, k); }
     root.style.setProperty('--lside', Math.round(l) + 'px'); root.style.setProperty('--side', Math.round(s) + 'px');
@@ -99,7 +98,7 @@
       const room = window.innerWidth - CHROME - IMG_MIN;
       const move = (ev) => {
         if (axis === 'l') store.set('lside', Math.round(Math.max(L_MIN, Math.min(room - parseFloat(css('--side')), ev.clientX - $('#lside').getBoundingClientRect().left))));
-        else if (axis === 'x') store.set('side', Math.round(Math.max(S_MIN, Math.min(room - parseFloat(css('--lside')), window.innerWidth - 12 - ev.clientX))));
+        else if (axis === 'x') store.set('side', Math.round(Math.max(S_MIN, Math.min(room - parseFloat(css('--lside')), window.innerWidth - 6 - ev.clientX))));
         else store.set('tlh', Math.round(Math.max(150, Math.min(window.innerHeight - 300, window.innerHeight - ev.clientY))));
         applySizes(); fitMedia(); resize();
       };
@@ -158,12 +157,16 @@
   // (Médias · Notes · Scène · Inspecteur); `tab` is the last one chosen, onTab(t) says whether t is shown
   const LEFT = new Set(['agent', 'queue', 'lots']);
   const tab0 = store.get('tab', null);   // the one tab of the earlier layout: kept in its group
-  let tabL = store.get('tabL', LEFT.has(tab0) ? tab0 : 'queue'), tabR = store.get('tabR', tab0 && !LEFT.has(tab0) ? tab0 : 'medias');
+  let tabL = store.get('tabL', LEFT.has(tab0) ? tab0 : 'agent'), tabR = store.get('tabR', tab0 && !LEFT.has(tab0) ? tab0 : 'composition');
   let tab = tabL;
   const onTab = (t) => (LEFT.has(t) ? tabL : tabR) === t;
-  function setTab(t) {
+  function setTab(t, reveal = true) {
     const left = LEFT.has(t), bar = left ? '#ltabs' : '#tabs';
     if (!document.querySelector(`${bar} button[data-tab="${t}"]`)) return;
+    const side = left ? 'left' : 'right';
+    if (reveal && !document.body.classList.contains('cg') && document.body.classList.contains('ws-hide-' + side)) {
+      window.CoulissesWorkspace?.showPanel(side);
+    }
     tab = t;
     if (left) { tabL = t; store.set('tabL', t); } else { tabR = t; store.set('tabR', t); }
     document.querySelectorAll(`${bar} button`).forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
@@ -174,7 +177,7 @@
     if (t === 'scene') renderScene();
     if (!left) { if (t === 'medias') window.CoulissesMedias?.show(); else window.CoulissesMedias?.hide(); }
   }
-  document.querySelectorAll('.tabbar button[data-tab]').forEach((b) => b.onclick = () => setTab(b.dataset.tab));
+  document.querySelectorAll('.tabbar button[data-tab]').forEach((b) => b.onclick = () => b.dataset.tab === 'scene' ? window.CoulissesScene.open() : setTab(b.dataset.tab));
   $('#helpBtn').onclick = () => window.Shortcuts?.open();   // Aide › Raccourcis clavier (shortcuts.js)
   // « Langue · Language » (Édition › Préférences): the user's choice for the whole app (settings.json, via
   // the server); the notes are saved first, and the page comes back in the new language on the same frame

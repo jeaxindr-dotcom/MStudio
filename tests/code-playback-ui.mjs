@@ -18,7 +18,8 @@ function fixture({unload = null, creation = null, cancellation = null, polling =
     getAttribute(k) {return this.attrs[k] ?? null;} removeAttribute(k) {delete this.attrs[k];}
     load() {trace.push(['recharge', this.id]); this.readyState = 0; this.currentTime = 0;} pause() {this.paused = true;} play() {this.paused = false; this.emit('play'); return Promise.resolve();}
   }
-  const c = {document: {createElement: (tag) => new Element(tag)}, media: new Element('div'), window: {},
+  const stagewrap = new Element('div');
+  const c = {document: {createElement: (tag) => new Element(tag)}, $: selector => selector === '#stagewrap' ? stagewrap : null, media: new Element('div'), window: {},
     mode: 'code', META: {engine: 'remotion'}, STATUS: {code: {version: 1, hash: 'hash1', status: 'ready'}}, codeVer: 1,
     rate: 1, vol: 1, FPS: 30, CW: 1920, CH: 1080, staging: false, codeLoading: null, preparedCode: null,
     v: {volume: 1, playbackRate: 1}, RS: {wait: false, el: {pause: () => trace.push(['son-pause'])}},

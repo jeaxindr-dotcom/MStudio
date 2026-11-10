@@ -64,7 +64,7 @@ try {
     'an empty 3D scene; the grid and the axes for the editor only; 1080 × 1920, 6 s');
   check(/La planète bleue — un projet créé dans Coulisses/.test(fs.readFileSync(path.join(DIR, 'CLAUDE.md'), 'utf8')) && fs.existsSync(path.join(DIR, 'AGENTS.md')), 'the guide of the agent (CLAUDE.md, AGENTS.md)');
   const opts = spawnSync(process.execPath, [path.join(DIR, 'scripts', 'coulisses-rendu.mjs'), '--options'], { cwd: DIR, encoding: 'utf8' });
-  check(/Exporter la vidéo/.test(opts.stdout) && /Rendu test/.test(opts.stdout), 'its export script and its variants');
+  check(JSON.parse(opts.stdout).some(o=>o.id==='final' && o.scope==='full') && JSON.parse(opts.stdout).some(o=>o.id==='test' && o.scope==='excerpt' && /2 s/.test(o.label)), 'its export script distinguishes full film and two-second excerpt');
   const v = cli('projet', 'verifier', r.file, '--rapide');
   check(/PROJET CONFORME/.test(v.stdout), `projet verifier: ${(/PROJET (NON )?CONFORME[^\n]*/.exec(v.stdout) ?? [v.stdout.slice(-200)])[0]}`);
 

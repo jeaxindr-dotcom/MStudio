@@ -14,16 +14,21 @@
 // Port: 4170 (installed in the pipeline) or 4171 (Dev workshop), the next one if taken. --lock <file> = where the launcher
 // waits for { pid, port } (written once listening). The Dev workshop lists its sandbox episodes, not the real ones.
 import http from 'node:http';
+import {createHash} from 'node:crypto';
+import {promisify} from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { optionsFrom, readJson, stamp } from './lib/episode.mjs';
 import { STUDIO, INSTALLED, CACHE, DATA } from './lib/place.mjs';
+import { APP_NAME, MSTUDIO, ENGINE_DIR, HUB_PORT, LAST_HUB_PORT, processIdentity, assertReviewAvailable } from './lib/app-profile.mjs';
 import { ffmpeg, sweepStaleTemp } from './lib/frames.mjs';
 import { renderState } from './lib/render.mjs';
 import { registry, importProject, removeProject, project, revueOf, folderOf, setFolder, renameFolder } from './lib/projects.mjs';
 import { drives, startScan, scanState, stopScan } from './lib/scan.mjs';
-import { workspace, startInstall, installState, createProject, projectsRoot, FORMATS } from './lib/new-project.mjs';
+import { workspace, startInstall, installState, createProject, projectsRoot, documentsProjectsRoot, FORMATS } from './lib/new-project.mjs';
+import {createReverseJobs} from './lib/reverse-jobs.mjs';
+import {createReconstructionJobs} from './lib/reconstruct-jobs.mjs';
 import { hfFor } from './lib/hyperframes.mjs';
 import { homeUpdates, runHomeUpdate, homeUpdateState } from './lib/updates.mjs';
 import { t, lang, langSource, setLang, LANGS, renderPage } from './lib/i18n.mjs';
@@ -53,13 +58,33 @@ process.on('uncaughtException', (e) => log(t('hubsrv.ignored', { msg: e.stack ||
 // ids: E03 (an episode), P1a2b3c4d (an imported project, lib/projects.mjs)
 const normId = (x) => { const v = String(x ?? '').trim(); return /^E\d+$/i.test(v) ? v.toUpperCase() : /^P[0-9a-f]{8}$/i.test(v) ? 'P' + v.slice(1).toLowerCase() : null; };
 function reviewStats(revue) {
+  const lotsDir = path.join(revue, 'lots');
+  const key = ['notes.json','replies.json','lots'].map(name => {
+    const st = fs.statSync(path.join(revue,name), {throwIfNoEntry:false});
+    return st ? st.mtimeMs + '/' + st.size + '/' + st.ino : '';
+  }).join('|');
+  const old = statsMemo.get(revue);
+  if (old?.key === key) return old.value;
   const notes = readJson(path.join(revue, 'notes.json'), { notes: [] }).notes ?? [];
   const replies = readJson(path.join(revue, 'replies.json'), { notes: {} }).notes ?? {};
   const done = (n) => { const r = replies[n.id], ut = Date.parse(n.statusAt || 0) || 0, ct = Date.parse(r?.statusAt || 0) || 0; return ['done', 'verified'].includes(r?.status && ct > ut ? r.status : n.status); };   // (fixed, or validated by the user)
-  const lots = fs.existsSync(path.join(revue, 'lots')) ? fs.readdirSync(path.join(revue, 'lots')).filter((f) => /^\d{3}\.json$/.test(f)).length : 0;
-  return { notes: notes.length, open: notes.filter((n) => !done(n)).length, drafts: notes.filter((n) => n.draft).length, lots,
-    reviewed: notes.length ? notes.map((n) => n.updated || n.created).filter(Boolean).sort().at(-1) : null };
+  const lots = fs.existsSync(lotsDir) ? fs.readdirSync(lotsDir).filter(f => /^\d{3}\.json$/.test(f)).length : 0;
+  const value = { notes: notes.length, open: notes.filter(n => !done(n)).length, drafts: notes.filter(n => n.draft).length, lots,
+    reviewed: notes.reduce((last,n) => {const at = n.updated || n.created; return at && (!last || at > last) ? at : last;}, null) };
+  statsMemo.set(revue, {key,value});
+  return value;
 }
+const statsMemo = new Map();
+// A big library must not launch one ffprobe or ffmpeg per visible project at once.
+function limited(concurrency) {
+  let active = 0; const waiting = [];
+  return async function run(task) {
+    if (active < concurrency) active++; else await new Promise(resolve => waiting.push(resolve));
+    try { return await task(); }
+    finally { if (waiting.length) waiting.shift()(); else active--; }
+  };
+}
+const probeQueue = limited(2), thumbnailQueue = limited(2), execProbe = promisify(execFile);
 // a video's duration, by ffprobe in the background (never inside the request: the list is asked every 5 s); unknown
 // until it answers, then shown on the next refresh
 const durations = new Map(), measuring = new Set();
@@ -67,9 +92,9 @@ function durationOf(file, st) {
   const key = `${file}|${st.size}|${st.mtime}`;
   if (!durations.has(key) && !measuring.has(key)) {
     measuring.add(key);
-    execFile('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { encoding: 'utf8', windowsHide: true, timeout: 30000 }, (err, out) => {
-      durations.set(key, +String(out ?? '').trim() || null); measuring.delete(key);
-    });
+    probeQueue(() => execProbe('ffprobe', ['-v','error','-show_entries','format=duration','-of','csv=p=0',file],
+      {encoding:'utf8',windowsHide:true,timeout:30000})).then(({stdout}) => durations.set(key,Number(stdout.trim()) || null),
+      () => durations.set(key,null)).finally(() => measuring.delete(key));
   }
   return durations.get(key) ?? null;
 }
@@ -80,7 +105,8 @@ function projects() {
     try {
       const p = project(revue), v = p.summary.video;
       const engine = p.kind === 'remotion' ? 'remotion' : p.kind === 'hyperframes' ? 'hyperframes' : null;   // the home screen's tag (09/10/2026)
-      return { id, project: true, kind: p.kind, engine, channel: p.summary.channel ?? null, folder: folderOf(id, p.summary.channel ?? null, reg), coulisses: p.coulisses ?? null, format: p.summary.format, title: p.title, root: p.EP, revue, video: v, thumb: !!v,
+      const reverse = p.kind === 'remotion' && fs.existsSync(path.join(p.EP,'reverse.json')) && readJson(p.coulisses,{})?.reverse === 1;
+      return { id, project: true, reverse, kind: p.kind, engine, channel: p.summary.channel ?? null, folder: folderOf(id, p.summary.channel ?? null, reg), coulisses: p.coulisses ?? null, format: p.summary.format, title: p.title, root: p.EP, revue, video: v, thumb: !!v || reverse,
         duration: v ? durationOf(p.summary.videoPath, v) : null, ...reviewStats(revue), studio: live };
     } catch (e) { return { id, project: true, missing: true, revue, folder: folderOf(id, null, reg), title: path.basename(path.dirname(revue)), why: e.message, studio: live }; }
   });
@@ -106,41 +132,60 @@ function episodes() {
   return fs.readdirSync(O.episodesDir).filter((d) => /^E\d+ - /i.test(d)).sort().map((folder) => {
     const id = folder.split(' - ')[0].toUpperCase(), dir = path.join(O.episodesDir, folder), revue = path.join(dir, 'revue');
     const mp4 = path.join(dir, `${folder}.mp4`), video = fs.existsSync(mp4) ? stamp(mp4) : null;
-    const notes = readJson(path.join(revue, 'notes.json'), { notes: [] }).notes ?? [];
-    const replies = readJson(path.join(revue, 'replies.json'), { notes: {} }).notes ?? {};
-    const done = (n) => { const r = replies[n.id], ut = Date.parse(n.statusAt || 0) || 0, ct = Date.parse(r?.statusAt || 0) || 0; return ['done', 'verified'].includes(r?.status && ct > ut ? r.status : n.status); };   // (fixed, or validated by the user)
     const snap = readJson(path.join(revue, 'timeline.json'), null);
-    const lots = fs.existsSync(path.join(revue, 'lots')) ? fs.readdirSync(path.join(revue, 'lots')).filter((f) => /^\d{3}\.json$/.test(f)).length : 0;
+    const poster = fs.statSync(path.join(dir,'thumbnail.jpg'),{throwIfNoEntry:false});
     const st = studios.get(id), R = renderState({ REVUE: revue });   // a re-render asked from the studio (lib/render.mjs)
     const render = R && (R.state === 'running' || ((R.state === 'rendered' || R.state === 'blocked' || R.state === 'failed') && Date.now() - Date.parse(R.updatedAt) < 3 * 86400e3))
       ? { state: R.state, phase: R.phase, pct: R.render?.stage === 'frames' ? Math.floor(R.render.pct) : null } : null;
     return {
       render, engine: 'remotion', channel: theatreChannel(), folder: folderOf(id, theatreChannel(), reg), dir: folder,
       id, title: folder.replace(/^E\d+ - /i, ''), video, duration: snap ? snap.frames / (snap.fps || 30) : null,
-      notes: notes.length, open: notes.filter((n) => !done(n)).length, drafts: notes.filter((n) => n.draft).length, lots,
-      thumb: fs.existsSync(path.join(dir, 'thumbnail.jpg')) || !!video, reviewed: notes.length ? notes.map((n) => n.updated || n.created).filter(Boolean).sort().at(-1) : null,
+      ...reviewStats(revue), thumb: !!poster || !!video, thumbVersion: poster ? String(poster.mtimeMs) : video?.mtime,
       studio: st && (st.paused || (st.proc.exitCode === null && st.url)) ? { url: st.url, paused: !!st.paused } : null,
     };
   });
 }
-// a small thumbnail (the 4K thumbnail.jpg scaled, else a frame of the video), cached
+// A short snapshot serves simultaneous visitors and their thumbnail lookups. Revisit
+// disk changes on the next poll; explicit library mutations invalidate immediately.
+let catalogCache = null;
+function catalog() {
+  if (catalogCache && Date.now() - catalogCache.at < 1400) return catalogCache;
+  const eps = episodes(), imported = projects();
+  catalogCache = {at:Date.now(), episodes:eps, projects:imported,
+    index:new Map([...eps,...imported].map(item => [item.id,item]))};
+  return catalogCache;
+}
+const thumbJobs = new Map();
 async function thumb(id) {
-  let src = null, at = 20;
-  if (id.startsWith('P')) {   // an imported project: a frame of its video, 10 % in
-    const pr = projects().find((x) => x.id === id); if (!pr?.video) return null;
-    src = project(pr.revue).summary.videoPath; at = Math.max(0.5, Math.min(20, (pr.duration ?? 20) * 0.1));
-  } else {
-    const e = episodes().find((x) => x.id === id); if (!e) return null;
-    const dir = path.join(O.episodesDir, e.dir);
-    src = fs.existsSync(path.join(dir, 'thumbnail.jpg')) ? path.join(dir, 'thumbnail.jpg') : (e.video ? path.join(dir, `${e.dir}.mp4`) : null);
+  if (!id) return null;
+  const item = (catalogCache || catalog()).index.get(id);
+  if (!item?.thumb) return null;
+  let src;
+  if (item.project) src = project(item.revue).summary.videoPath || (item.reverse && path.join(item.root,'public','media','source.mp4'));
+  else {
+    const dir = path.join(O.episodesDir,item.dir), poster = path.join(dir,'thumbnail.jpg');
+    src = fs.existsSync(poster) ? poster : path.join(dir,item.dir + '.mp4');
   }
   if (!src) return null;
-  const out = path.join(CACHE, 'hub', `thumb-${id}-${Math.round(fs.statSync(src).mtimeMs)}.jpg`);
-  if (!fs.existsSync(out)) {
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    await ffmpeg([...(/\.jpe?g$/i.test(src) ? [] : ['-ss', String(at)]), '-i', src, '-frames:v', '1', '-vf', 'scale=720:-2', '-q:v', '3', out]);
+  const st = fs.statSync(src,{throwIfNoEntry:false});
+  if (!st?.isFile()) return null;
+  const dir = path.join(CACHE,'hub'), sig = createHash('sha256').update([src,st.mtimeMs,st.size].join('|')).digest('hex').slice(0,16);
+  const out = path.join(dir,'thumb-' + id + '-' + sig + '.jpg');
+  if (fs.existsSync(out)) return out;
+  if (!thumbJobs.has(out)) {
+    const job = thumbnailQueue(async () => {
+      fs.mkdirSync(dir,{recursive:true});
+      const temp = out + '.' + process.pid + '.jpg';
+      try {
+        const at = Math.min(20,(item.duration || 0) * .1);
+        await ffmpeg([...(at && !/\.jpe?g$/i.test(src) ? ['-ss',String(at)] : []),'-i',src,'-frames:v','1','-vf','scale=720:-2','-q:v','3',temp]);
+        fs.renameSync(temp,out);
+        return out;
+      } finally { fs.rmSync(temp,{force:true}); }
+    }).finally(() => thumbJobs.delete(out));
+    thumbJobs.set(out,job);
   }
-  return out;
+  return thumbJobs.get(out);
 }
 
 // ---------- studios (one child process per episode) ----------
@@ -151,7 +196,8 @@ function open(id) {
   if (cur && !cur.paused && cur.proc.exitCode === null) return cur.ready;
   if (id.startsWith('P') && !revueOf(id)) return Promise.reject(new Error(t('hubsrv.gone')));
   // after a pause (render), the studio comes back on ITS port: the window, still open on it, finds it again
-  const again = cur?.url ? ['--port', new URL(cur.url).port] : [];
+  const studioPort = cur?.url ? new URL(cur.url).port : opt('--studio-port');
+  const again = studioPort ? ['--port', studioPort, ...(opt('--studio-port') ? ['--fallback-auto-port'] : [])] : [];
   const st = { proc: null, url: null, paused: false };
   const out = fs.createWriteStream(path.join(LOGS, `${id}.log`), { flags: 'a' });
   const proj = id.startsWith('P'), target = proj ? ['--project', revueOf(id) ?? ''] : [id];
@@ -176,9 +222,12 @@ function open(id) {
 const killTree = (pid) => new Promise((r) => execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => r()));
 async function pause(id) {
   const st = studios.get(id); if (!st) return false;
-  st.paused = true; await killTree(st.proc.pid); log(t('hubsrv.paused', { id })); return true;
+  st.paused = true;
+  if (st.proc.exitCode === null && st.proc.signalCode === null) await killTree(st.proc.pid);
+  log(t('hubsrv.paused', { id })); return true;
 }
 async function quit() {
+  await Promise.allSettled([reverseJobs.close(), reconstructionJobs.close()]);
   for (const st of studios.values()) if (st.proc.exitCode === null) await killTree(st.proc.pid);
   if (mine.size) await Promise.race([Promise.all([...mine].map((p) => unserve(p))), new Promise((r) => setTimeout(r, 4000))]);   // (the ports it brought to the tailnet, taken back)
   log(t('hubsrv.quit')); process.exit(0);
@@ -199,7 +248,7 @@ async function browserAccessState(fresh = false) {
 for (const s of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(s, quit);
 
 // ---------- « Importer un projet… » ----------
-const APP_EXE = path.join(STUDIO, 'Coulisses.exe');
+const APP_EXE = (MSTUDIO ? process.env.MSTUDIO_PICKER_EXE : process.env.COULISSES_PICKER_EXE) || path.join(STUDIO, APP_NAME + '.exe');
 const startDir = () => [path.join(os.homedir(), 'Desktop', 'Youtube', 'AItelier', 'long'), path.join(os.homedir(), 'Desktop', 'Youtube'), path.join(os.homedir(), 'Desktop')].find((d) => fs.existsSync(d)) ?? os.homedir();
 let picking = null;
 function pick(what) {
@@ -215,7 +264,23 @@ function pick(what) {
   });
   return picking;
 }
-const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (d) => { b += d; }); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
+const readBody = (req, strict = false) => new Promise((resolve,reject) => {
+  const chunks = []; let bytes = 0;
+  req.on('error',reject);
+  req.on('aborted',() => reject(new Error('Request aborted')));
+  req.on('data',chunk => {
+    bytes += chunk.length;
+    if (bytes <= 16 * 1024 * 1024) chunks.push(chunk);
+    else { chunks.length = 0; reject(Object.assign(new Error('Request too large'),{status:413})); }
+  });
+  req.on('end',() => {
+    try {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      if (strict && (!body || typeof body !== 'object' || Array.isArray(body))) throw Error();
+      resolve(body);
+    } catch { if (strict) reject(Object.assign(new Error('Invalid JSON object'),{status:400})); else resolve({}); }
+  });
+});
 function doImport(p) {
   const r = importProject(p, { episodesDir: O.episodesDir });
   log(r.episode ? t('hubsrv.episodeOpened', { id: r.id }) : t('hubsrv.imported', { title: r.title, kind: r.kind, revue: r.revue }));
@@ -225,12 +290,72 @@ function doImport(p) {
 // ---------- http ----------
 const send = (res, code, type, body) => { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-cache' }); res.end(body); };
 const json = (res, data, code = 200) => send(res, code, 'application/json; charset=utf-8', JSON.stringify(data));
+const reverseOptions = {
+  french:() => lang() === 'fr',root:() => MSTUDIO ? projectsRoot() : process.env.COULISSES_REVERSE_ROOT || (process.env.COULISSES_REVERSE_DOCUMENTS === '1' ? documentsProjectsRoot() : projectsRoot()),
+  modules:() => {
+    const roots = MSTUDIO ? [projectsRoot(), ENGINE_DIR] : [process.env.COULISSES_REVERSE_ROOT, projectsRoot(), process.env.COULISSES_REVERSE_ENGINE, O.remotionDir];
+    for (const root of roots.filter(Boolean)) {
+      const engine = workspace(root);
+      if (engine.ready) return path.join(engine.modulesRoot || root, 'node_modules');
+    }
+  },
+  register:file => {
+    const p = importProject(file);
+    catalogCache = null;
+    return p.id;
+  },
+  locate:id => {
+    if (!/^P[0-9a-f]{8}$/i.test(id || '')) return null;
+    const review = revueOf(normId(id));
+    if (!review) return null;
+    assertReviewAvailable(review);
+    const p = project(review);
+    return p.kind === 'remotion' && p.coulisses && readJson(p.coulisses,{})?.reverse === 1
+      ? {id:p.ep,dir:p.EP,file:p.coulisses} : null;
+  },
+};
+const reverseJobs = createReverseJobs(reverseOptions);
+const reconstructionJobs = createReconstructionJobs(reverseOptions);
+async function reverseRequest(pn,url,req,res) {
+  const post = req.method === 'POST', get = req.method === 'GET';
+  try {
+    if (pn === '/api/reverse/reconstruct' && post) return json(res,reconstructionJobs.start(await readBody(req,true)),202);
+    const reconstruction=/^\/api\/reverse\/reconstruction\/([a-f0-9-]{36})(?:\/(cancel|retry|verify))?$/.exec(pn);
+    if (reconstruction) {
+      const [,id,action]=reconstruction;
+      if (!action && get) return json(res,reconstructionJobs.status(id));
+      if (action === 'cancel' && post) return json(res,await reconstructionJobs.cancel(id));
+      if ((action==='retry'||action==='verify') && post) return json(res,reconstructionJobs.resume(id,action),202);
+      return json(res,{ok:false,why:'Method not allowed'},405);
+    }
+    if (pn === '/api/reverse/analyze' && post) return json(res,reverseJobs.analyze(await readBody(req,true)),202);
+    if (pn === '/api/reverse/edit' && post) return json(res,reverseJobs.edit((await readBody(req,true)).id));
+    const match = /^\/api\/reverse\/jobs\/([a-f0-9-]{36})(?:\/(frame|text|create|cancel))?$/.exec(pn);
+    if (!match) return json(res,{ok:false,why:'Unknown Reverse route'},404);
+    const [,id,action] = match;
+    if (!action && get) return json(res,reverseJobs.status(id));
+    if (action === 'create' && post) return json(res,reverseJobs.create(id,await readBody(req,true)),202);
+    if (action === 'cancel' && post) return json(res,reverseJobs.cancel(id));
+    if ((action === 'frame' || action === 'text') && get) {
+      const raw = url.searchParams.get('frame');
+      const client = new AbortController();
+      res.once('close', () => client.abort());
+      const ocr = action === 'text';
+      const result = await reverseJobs.image(id,/^\d+$/.test(raw ?? '') ? Number(raw) : NaN,client.signal,ocr,url.searchParams.get('view') === '1');
+      return ocr ? json(res,result) : send(res,200,'image/jpeg',result);
+    }
+    return json(res,{ok:false,why:'Method not allowed'},405);
+  } catch (error) {
+    if (!res.destroyed && !res.headersSent) json(res,{ok:false,why:error.message,needInstall:!!error.needInstall},error.status || 400);
+  }
+}
 const escH = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const page = (title0, msg0) => { const title = escH(title0), msg = escH(msg0); return `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="background:#090b12;color:#f4f5fa;font:15px 'Segoe UI';display:grid;place-items:center;height:100vh;margin:0"><div style="max-width:640px;text-align:center"><h2 style="font-weight:600">${title}</h2><p style="color:#aeb2c4;white-space:pre-wrap">${msg}</p><p><a style="color:#c9f26b" href="/">${t('hubsrv.back')}</a></p></div>`; };
 const server = http.createServer(async (req, res) => {
   if (!fromApp(req)) return refuse(res);   // only Coulisses itself (lib/guard.mjs)
   const url = new URL(req.url, 'http://x'), ep = normId(url.searchParams.get('ep')) ?? '';
   let pn; try { pn = decodeURIComponent(url.pathname); } catch { return send(res, 400, 'text/plain; charset=utf-8', 'bad address'); }
+  if (req.method === 'POST' || pn.startsWith('/go/') || pn === '/import') res.on('finish', () => { catalogCache = null; });
   try {
     // the home screen, in the user's language (lib/i18n.mjs: {{key}} and window.T)
     if (pn === '/' || pn === '/index.html') return send(res, 200, 'text/html; charset=utf-8', renderPage(fs.readFileSync(path.join(STUDIO, 'hub.html'), 'utf8'), { prefixes: ['hub.', 'common.', 'menu.', 'hf.noneShort'] }));
@@ -243,6 +368,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (pn === '/api/lang') return json(res, { lang: lang(), source: langSource(), langs: LANGS });
     // the menu bar (menubar.js): documents, About, the online documentation, the home screen's log
+    if (pn === '/hub-library.css') return send(res, 200, 'text/css; charset=utf-8', fs.readFileSync(path.join(STUDIO, 'page', 'hub-library.css')));
+    if (['/reverse-ui.js','/reconstruct-ui.js','/reverse.css'].includes(pn)) return send(res,200,pn.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8',fs.readFileSync(path.join(STUDIO,'page',pn.slice(1))));
+    if (pn.startsWith('/api/reverse/')) return reverseRequest(pn,url,req,res);
     if (pn === '/menubar.js') return send(res, 200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(STUDIO, 'menubar.js')));
     // « Raccourcis clavier » (shortcuts.js): the user's keys, the same here and in every studio (settings.json)
     if (pn === '/shortcuts.js') return send(res, 200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(STUDIO, 'shortcuts.js')));
@@ -253,7 +381,7 @@ const server = http.createServer(async (req, res) => {
     if (pn === '/api/log') return send(res, 200, 'text/plain; charset=utf-8', ring.text());
     if (req.method === 'POST' && pn === '/api/reveal') { const b = await readBody(req); if (b.what !== 'online') return json(res, { ok: false, why: String(b.what) }, 400); openOnline(); return json(res, { ok: true }); }
     if (pn === '/favicon.png') return send(res, 200, 'image/png', fs.readFileSync(path.join(STUDIO, 'favicon.png')));
-    if (pn === '/api/ping') return json(res, { hub: true, installed: INSTALLED, episodesDir: O.episodesDir, studios: Object.fromEntries([...studios].map(([k, s]) => [k, { url: s.url, paused: s.paused }])) });
+    if (pn === '/api/ping') return json(res, { hub: true, ...(MSTUDIO ? processIdentity() : {}), installed: INSTALLED, episodesDir: O.episodesDir, studios: Object.fromEntries([...studios].map(([k, s]) => [k, { url: s.url, paused: s.paused }])) });
     // ---- « Nouveau projet »: an empty 3D scene, built live with the agent (lib/new-project.mjs) ----
     // ---- « Mises à jour » (Remotion and HyperFrames): checked once a day by the page, updated on the user's click ----
     if (pn === '/api/home-updates' && req.method !== 'POST') {
@@ -323,7 +451,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (pn === '/api/episodes') {
       const fix = (x) => (x.studio?.url ? { ...x, studio: { ...x.studio, url: publicUrl(req, x.studio.url) } } : x);
-      return json(res, { installed: INSTALLED, episodesDir: O.episodesDir, episodes: episodes().map(fix), projects: projects().map(fix), remote: viaTailnet(req) });
+      const data = catalog(), body = JSON.stringify({installed:INSTALLED, episodesDir:O.episodesDir,
+        episodes:data.episodes.map(fix),projects:data.projects.map(fix),remote:viaTailnet(req)});
+      const tag = '"' + createHash('sha256').update(body).digest('hex').slice(0,24) + '"';
+      res.setHeader('ETag',tag);
+      if (req.headers['if-none-match'] === tag) { res.writeHead(304,{'Cache-Control':'no-cache'}); return res.end(); }
+      return send(res,200,'application/json; charset=utf-8',body);
     }
     if (pn === '/api/browser-access' && req.method !== 'POST') return json(res, { ...(await browserAccessState(url.searchParams.has('fresh'))), here: viaTailnet(req) });
     if (pn === '/api/browser-access' && req.method === 'POST') {
@@ -362,8 +495,8 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, 'text/plain', 'not found');
   } catch (e) { json(res, { ok: false, why: e.message }, 500); }
 });
-let port = +(opt('--port') ?? 0) || (INSTALLED ? 4170 : 4171);
-server.on('error', (e) => { if (e.code === 'EADDRINUSE' && port < 4199) { port++; server.listen(port, '127.0.0.1'); } else { log(t('hubsrv.listen', { msg: e.message })); process.exit(1); } });
+let port = +(opt('--port') ?? 0) || (INSTALLED ? HUB_PORT : 4171);
+server.on('error', (e) => { if (e.code === 'EADDRINUSE' && port < LAST_HUB_PORT) { port++; server.listen(port, '127.0.0.1'); } else { log(t('hubsrv.listen', { msg: e.message })); process.exit(1); } });
 server.on('listening', () => {
   hubUrl = `http://127.0.0.1:${port}/`;
   log(t('hubsrv.ready', { url: hubUrl, dir: O.episodesDir }));

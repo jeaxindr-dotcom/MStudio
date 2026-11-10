@@ -82,7 +82,7 @@
     else if (on('toolComment')) setTool('comment');
     else if (on('ask')) { e.preventDefault(); if (pickPt) promptAtPick(); else setSave(T('st.key.pointFirst'), ''); }
     else if (on('source')) { if (!META.features?.code || !META.render) return; if (staging) setStaging(false); setMode(mode === 'video' ? 'code' : 'video'); }
-    else if (on('staging')) { const why = stageWhy(); if (why) setSave(why, 'err'); else setStaging(!staging); }
+    else if (on('staging')) { e.preventDefault(); window.CoulissesScene.open(true); }
     else if (on('gradePage')) { e.preventDefault(); setPage(CG.on ? 'review' : 'grade'); }   // G: the « Étalonnage » page (part 11)
     else if (on('gradeBypass') && CG.on) { e.preventDefault(); cgSetBypass(!CG.bypass); }    // B: the image without its grade
     else if (on('note')) { e.preventDefault(); M.pause(); addNote(curFrame()); }
@@ -107,7 +107,7 @@
   function hubFrame(q = '') {
     let f = $('#hubOv');
     if (f && q) { f.remove(); f = null; }   // a menu of the home screen asked from here (« Ouvrir un projet… »): that page
-    if (!f) { f = document.createElement('iframe'); f.id = 'hubOv'; f.title = 'Coulisses'; f.src = META.hub + q; document.body.appendChild(f); }
+    if (!f) { f = document.createElement('iframe'); f.id = 'hubOv'; f.title = T('common.productName'); f.src = META.hub + q; document.body.appendChild(f); }
     return f;
   }
   function toHub(q = '') {
@@ -153,7 +153,7 @@
   async function showAbout() {
     const a = await (await fetch('/api/about', { cache: 'no-store' })).json().catch(() => null) ?? {};
     const row = (k, v) => (v ? `<div class="row"><span class="lbl">${esc(k)}</span><span>${v}</span></div>` : '');
-    const d = dlg({ title: T('menu.about'), html: `<p><b>Coulisses</b> ${esc(a.version ?? '')}</p><p>${esc(T('menu.about.what'))}</p>`
+    const d = dlg({ title: T('menu.about'), html: `<p><b>${esc(a.name)}</b> ${esc(a.version ?? '')}</p><p>${esc(T('menu.about.what'))}</p>`
       + row(T('menu.about.version'), esc(a.version)) + row(T('menu.about.installed'), a.installed ? esc(hhmm(a.installed)) : '') + row(T('menu.about.commit'), a.commit ? esc(`${a.commit}${a.branch ? ` (${a.branch})` : ''}`) : '')
       + row(T('menu.about.folder'), `${esc(a.folder ?? '')}${a.place === 'workshop' ? ` · ${esc(T('menu.about.workshop'))}` : ''}`)
       + row(T('menu.about.license'), esc(a.license)) + row(T('menu.about.source'), `<a href="#" id="mbRepo">${esc(String(a.url ?? '').replace(/^https:\/\//, ''))}</a>`) });
@@ -193,6 +193,7 @@
         { id: 'importFolder', label: T('menu.importFolder'), disabled: noHub, run: () => toHub('?menu=folder') },
         { id: 'importVideo', label: T('menu.importVideo'), disabled: noHub, run: () => toHub('?menu=video') },
         { id: 'scan', label: T('menu.scan'), disabled: noHub, run: () => toHub('?menu=scan') },
+        { id: 'exportVideo', label: T('common.exportVideo'), run: () => window.CoulissesOutput.open() },
         '-',
         { id: 'revealFolder', label: T('menu.revealFolder'), run: () => revealMenu('folder') },
         { id: 'revealVideo', label: T('menu.revealVideo'), disabled: () => (META?.videoPath ? false : T('menu.why.noVideo')), run: () => revealMenu('video') },
@@ -213,10 +214,14 @@
         { id: 'prefs', label: T('menu.prefs'), run: showPrefs },
       ] },
       { id: 'tools', label: T('menu.tools'), items: [
+        { id: 'commands', label: FR ? 'Rechercher dans le studio' : 'Search the studio', key: 'Ctrl+K', run: () => $('#studioCommands').click() },
+        { id: 'storyboard', label: 'Storyboard', run: () => window.CoulissesStoryboard.open() },
+        { id: 'exportFrame', label: FR ? 'Exporter l’image affichée (JPEG)…' : 'Export current frame (JPEG)…', run: () => window.CoulissesStoryboard.saveFrame() },
+        '-',
         { id: 'connect', label: T('menu.connect'), run: openConnect },
         { id: 'send', label: T('menu.send'), key: () => SC.show('send'), disabled: sendWhy, run: sendQueue },
         '-',
-        { id: 'staging', label: T('menu.staging'), key: () => SC.show('staging'), disabled: () => stageWhy() ?? false, run: () => setStaging(!staging) },
+        { id: 'staging', label: T('menu.staging'), key: () => SC.show('staging'), run: () => window.CoulissesScene.open(true) },
         { id: 'freeCam', label: () => T(staging && D2() ? 'st.bar.cam2d' : 'st.bar.cam'), key: () => SC.show('freeCam'), disabled: () => (stageWhy() ?? (staging ? false : T('menu.why.notStaging'))), run: toggleFreeCam },
         { id: 'source', label: T('menu.source'), key: () => SC.show('source'), disabled: () => srcWhy() ?? false, run: () => { if (staging) setStaging(false); setMode(mode === 'video' ? 'code' : 'video'); } },
         { id: 'grade', label: () => T(CG.on ? 'menu.gradeOff' : 'menu.grade'), key: () => SC.show('gradePage'), run: () => setPage(CG.on ? 'review' : 'grade') },
@@ -224,7 +229,7 @@
         { id: 'export', label: T('menu.export'), disabled: () => (LIVEP() ? (!META.features?.export ? (META.exportWhy ?? T('menu.why.notRemotion')) : STATUS.export?.state === 'running' ? T('menu.why.exportRunning') : false)
           : !PROJ ? (renderBusy() ? T('menu.why.renderBusy') : false) : T('menu.why.noExport')),
           // (the same in every project: « Lancer le rendu en 1080p », « … en 4K », then a project's own variants)
-          items: () => qualities().map((x) => ({ id: `render-${x.id}`, label: x.id.startsWith('x:') ? x.label : TN('st.rc.goQ', { q: x.label }), disabled: () => x.why || false, run: () => { setQuality(x.id); goRender(); } })) },
+          items: () => qualities().map((x) => ({ id: `render-${x.id}`, label: ['1080p','4K'].includes(x.label) ? TN('st.rc.goQ', { q: x.label }) : x.label, disabled: () => x.why || false, run: () => { setQuality(x.id); goRender(); } })) },
         { id: 'stopExport', label: T('menu.stopExport'), disabled: () => (PROJ ? (STATUS.export?.state === 'running' ? false : T('menu.why.noExportRunning'))
           : (STATUS.render?.state === 'running' && STATUS.render.phase !== 'finish' ? false : T('menu.why.noRenderRunning'))), run: () => (PROJ ? stopExportUI() : stopRender()) },
         { id: 'compare', label: T('menu.compare'), disabled: () => (STATUS.compare?.length ? false : T('menu.why.noCompare')), run: () => openCompare() },
@@ -253,24 +258,15 @@
   $('#bPrefs').onclick = showPrefs;
   $('#crumb').onclick = (e) => { e.preventDefault(); toHub(); };
   for (const [b, key] of [[$('#bZoomIn'), 'zoomIn'], [$('#bZoomOut'), 'zoomOut']]) { const k = SC.show(key); if (k) b.title += ` (${k})`; }
-  // the top bar's main action, white (user request, 09/10/2026, after the reference's « Export »): « Lancer le rendu », in
-  // the quality chosen in « Envois », in every project (19/10/2026: « la même interface pour tous les projets ») — an
-  // episode's asked to the agent, a run's by its export script; a project with neither: no button. Busy (a render or an
-  // export running): it shows where it goes, in « Envois »
+  // Same two entry points in every project. Rendering uses the project's existing
+  // backend. Export also offers the original file when it is already on disk.
   const goKind = () => (!META ? null : !PROJ ? 'render' : LIVEP() && META.features?.export ? 'export' : null);
   const goBusy = () => (goKind() === 'render' ? (renderBusy() ? T('menu.why.renderBusy') : null) : STATUS.export?.state === 'running' ? T('menu.why.exportRunning') : null);
   function markGo() {
-    const b = $('#hdrGo'), k = goKind();
-    b.style.display = k ? '' : 'none'; if (!k) return;
-    const q = quality(), why = goBusy();
-    b.querySelector('.t').textContent = T('menu.render');
-    b.title = why ?? (k === 'render' ? T('st.top.renderTitle', { ep: META.episode ?? '' }) : TN('st.top.goQTitle', { q: q.label }));
-    b.classList.toggle('off', !!why);
+    window.CoulissesOutput?.refresh();
   }
-  $('#hdrGo').onclick = () => {
-    if (goBusy()) { setTab('lots'); return; }
-    if (goKind()) goRender();
-  };
+  $('#hdrGo').onclick = () => window.CoulissesOutput?.render();
+  $('#hdrExport').onclick = () => window.CoulissesOutput?.open();
 
   const hashFrame = () => { const m = /f=(\d+)/.exec(location.hash); return m ? +m[1] : null; };
 

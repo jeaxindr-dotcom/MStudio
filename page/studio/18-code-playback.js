@@ -9,7 +9,8 @@
     button.id = 'prepareCodeRange'; button.textContent = words('Préparer 30 s', 'Prepare 30 s');
     button.title = words('Calculer une plage du code courant ; durée de préparation variable selon la scène', 'Prepare a range of the current code; preparation time depends on the scene');
     back.id = 'returnLiveCode'; back.textContent = words('Revenir au direct', 'Return to live code'); back.hidden = true;
-    panel.id = 'codeRangeTools'; panel.hidden = true; panel.append(button, back, label); media.after(panel);
+    panel.id = 'codeRangeTools'; panel.hidden = true; panel.append(button, back, label);
+    $('#stagewrap').after(panel);
     film.id = 'codeRangeVideo'; film.playsInline = true; film.preload = 'auto'; film.hidden = true; codeEl.after(film);
     let session = null, leaving = null, parked = null, waking = null, pollBusy = false, modeSerial = 0;
     const active = () => !!session;

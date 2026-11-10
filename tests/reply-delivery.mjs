@@ -129,12 +129,14 @@ try {
     try {
       const acknowledgements = [da, db].map((d) => run(['ack-replies', parallel.REVUE, d.id, '--agent', 'codex']).done);
       const script = "import {syncUserReplies} from './lib/reply-delivery.mjs'; const {p,doc}=JSON.parse(process.argv[1]); syncUserReplies(p,doc);";
-      const syncChild = spawn(process.execPath, ['--input-type=module', '-e', script, JSON.stringify({ p: parallel, doc: nextDoc })], { cwd: ROOT, env, stdio: 'ignore' });
-      const synced = new Promise((resolve, reject) => { syncChild.once('error', reject); syncChild.once('exit', (code) => resolve({ code })); });
+      const syncChild = spawn(process.execPath, ['--input-type=module', '-e', script, JSON.stringify({ p: parallel, doc: nextDoc })], { cwd: ROOT, env, stdio: ['ignore','ignore','pipe'] });
+      let syncError = ''; syncChild.stderr.on('data', b => syncError += b);
+      const synced = new Promise((resolve, reject) => { syncChild.once('error', reject); syncChild.once('close', (code) => resolve({ code, stderr:syncError })); });
       await sleep(500); fs.rmSync(lock);
       parallelResults = await Promise.all([...acknowledgements, synced]);
     } finally { fs.rmSync(lock, { force: true }); }
     const parallelReceipts = userReplyReceipts(parallel)['note-27'], remaining = pendingUserReplies(parallel);
+    for (const result of parallelResults) if (result.code !== 0) console.error(result.stderr);
     check(parallelResults.every((r) => r.code === 0) && !!parallelReceipts[pa.id].seenAt && !!parallelReceipts[pb.id].seenAt && !parallelReceipts[pc.id].seenAt && remaining.length === 1 && remaining[0].key === pc.id,
       'deux accusés simultanés et l’archivage concurrent d’une réponse conservent les trois messages sans accuser le nouveau');
     let refusedId = false; try { acknowledgeUserReplyDelivery(many, '../inconnue', null); } catch { refusedId = true; }

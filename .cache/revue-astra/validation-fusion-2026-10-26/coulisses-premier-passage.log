@@ -1,8 +1,0 @@
-  ✓ projet creer: the run's file (Essai de Coulisses.coulisses)
-  ✓ projet verifier --rapide: conforming (tracks, composition, live preview)
-  ✓ import of the run folder finds its .coulisses (remotion, « Essai de Coulisses »)
-  ✓ listed, with no video yet
-  ✓ home screen: « Ouvrir le studio » is offered before any export
-  ✗ ERREUR timeout: location.port !== '4188' && window.__studio && __studio.state().mode === 'code' && window.__preview?.durationInFrames > 1
-
-5 ok, 1 échec(s)

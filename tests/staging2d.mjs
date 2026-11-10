@@ -7,7 +7,7 @@
 //      the engine (CSS translate / scale), in frame pixels;
 //   3. « Ajouter »: a pinned edit with the offset, the « after » image photographed by the server at the frame's size,
 //      and the batch's request in 2D words; the camera (the whole frame) reframes;
-//   4. a project with only a video: the staging is greyed, and says why.
+//   4. a rendered video opens the parallax request from each entry point. Staying in 2D explains why editing needs code.
 // usage: node tests/staging2d.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,12 +45,14 @@ async function studioOn(revue, port) {
   return c;
 }
 const TOOLS = ['connect', 'send', 'staging', 'source', 'export', 'stopExport', 'compare', 'updates', 'verify', 'log'];
-async function menuIds(p) {   // Outils: its entries, and the reason of each greyed one
+async function menuIds(p, select) {   // Outils: its entries, and the reason of each greyed one
   const [x, y] = await p.eval(`const r = document.querySelector('#menubar > button[data-menu=tools]').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]`);
   await p.mouse('mousePressed', x, y); await p.mouse('mouseReleased', x, y); await sleep(300);
   const r = await p.eval(`const m = document.querySelector('.mb-menu'); const items = m ? [...m.querySelectorAll(':scope > .mb-item')] : [];
     return { ids: items.map((r) => r.dataset.id), off: Object.fromEntries(items.map((r) => [r.dataset.id, r.classList.contains('off') ? r.title : ''])) }`);
-  await p.key('Escape', 'Escape'); await sleep(100);
+  if (select) await p.eval(`document.querySelector('.mb-menu .mb-item[data-id="${select}"]').click(); return 1`);
+  else await p.key('Escape', 'Escape');
+  await sleep(100);
   return r;
 }
 
@@ -68,14 +70,14 @@ try {
   // ---------- 1. the same tools everywhere ----------
   console.log('les mêmes outils partout');
   const rail = await p.eval(`return [...document.querySelectorAll('#rail button, #ctlbar button[data-tool]')].map((b) => ({ id: b.id || b.dataset.tool, shown: getComputedStyle(b).display !== 'none', off: b.classList.contains('off'), why: b.querySelector('.why')?.textContent ?? '' }))`);
-  check(rail.map((b) => b.id).join() === 'bHome,bNote,bRange,bMic,bStage,bSrc,bPrefs,select,draw,comment' && rail.every((b) => b.shown), `the rail and the tools under the image: ${rail.map((b) => b.id).join(' · ')}, all shown`);
+  check('bHome,bNote,bRange,bMic,bStage,bSrc,bPrefs,select,draw,comment'.split(',').every(id => rail.some(b => b.id === id && b.shown)), `the rail and the tools under the image: ${rail.map((b) => b.id).join(' · ')}`);
   const src = rail.find((b) => b.id === 'bSrc'), stg = rail.find((b) => b.id === 'bStage');
   check(src.off && /Pas encore de vidéo/.test(src.why) && !stg.off, `« MP4 ⇄ code » greyed here (« ${src.why} »), « Mise en scène » ready`);
   // the two tab bars (user request, 09/10/2026): the agent's column on the left, the media and notes on the right
   const tabs = await p.eval(`return [...document.querySelectorAll('.tabbar')].map((bar) => { const r = bar.getBoundingClientRect(), bs = [...bar.querySelectorAll('button')];
-      return { names: bs.map((b) => [...b.childNodes].find((n) => n.nodeType === 3)?.textContent).join('|'), cut: bs.filter((b) => b.scrollWidth > b.clientWidth + 1).length,
+      return { names: bs.map((b) => {const c=b.cloneNode(true); c.querySelector('.n')?.remove(); return c.textContent.trim();}).join('|'), cut: bs.filter((b) => b.scrollWidth > b.clientWidth + 1).length,
         fits: bar.scrollWidth <= bar.clientWidth + 1, last: bs.at(-1).getBoundingClientRect().right <= r.right + 1 }; })`);
-  check(tabs.map((t) => t.names).join(' / ') === 'Agent|Modifs|Envois / Médias|Notes|Scène|Inspecteur' && tabs.every((t) => !t.cut && t.fits && t.last), `two tab bars, none cut, the last whole (${tabs.map((t) => t.names.replaceAll('|', ' · ')).join(' / ')})`);
+  check(tabs.map((t) => t.names).join(' / ') === 'Agent|Modifs|Envois / Calques|Médias|Notes|Scène|Inspecteur' && tabs.every((t) => !t.cut && t.fits && t.last), `two tab bars, none cut, the last whole (${tabs.map((t) => t.names.replaceAll('|', ' · ')).join(' / ')})`);
   const m1 = await menuIds(p);
   check(TOOLS.every((id) => m1.ids.includes(id)) && !m1.ids.includes('render') && !m1.off.staging && /Pas encore de vidéo/.test(m1.off.source), `Outils: ${m1.ids.filter(Boolean).join(' · ')}`);
 
@@ -83,6 +85,8 @@ try {
   console.log('la mise en scène 2D');
   await p.eval(`window.__preview.seek(45); return 1`); await sleep(900);
   await p.key('m', 'KeyM', 'm');
+  await p.until("document.querySelector('#sceneRequestKeep')", 20000);
+  await p.eval("document.querySelector('#sceneRequestKeep').click()");
   await p.until(`__studio.state().staging`, 20000);
   check(await p.eval(`return __studio.state().tab === 'scene' && window.__preview.stage.kind === '2d'`), 'M: the 2D staging, panel « Scène »');
   const fr0 = await p.eval(`const r = document.querySelector('#code').getBoundingClientRect(); return [r.left, r.top]`);
@@ -193,11 +197,18 @@ try {
   const r2 = await p.eval(`return [...document.querySelectorAll('#rail button, #ctlbar button[data-tool]')].map((b) => ({ id: b.id || b.dataset.tool, shown: getComputedStyle(b).display !== 'none', off: b.classList.contains('off'), why: b.querySelector('.why')?.textContent ?? '' }))`);
   check(r2.map((b) => b.id).join() === rail.map((b) => b.id).join() && r2.every((b) => b.shown), 'the same rail for a video');
   const s2 = r2.find((b) => b.id === 'bStage');
-  check(s2.off && /que sa vidéo/.test(s2.why), `« Mise en scène » greyed: « ${s2.why.slice(0, 70)}… »`);
-  const m2 = await menuIds(p);
-  check(JSON.stringify(m2.ids.filter(Boolean)) === JSON.stringify(m1.ids.filter(Boolean)) && /que sa vidéo/.test(m2.off.staging) && /propre logiciel/.test(m2.off.export), 'the same Tools menu, greyed where it does not apply, with the reason');
-  await p.eval(`document.querySelector('button[data-tab="scene"]').click(); return 1`); await sleep(300);
-  check(/que sa vidéo/.test(await p.eval(`return document.querySelector('#scene').innerText`)), 'the « Scène » tab says why');
+  const offer = `__studio.state().tab === 'scene' && !__studio.state().staging && !!document.querySelector('#sceneRequestSend') && !!document.querySelector('#sceneRequestKeep')`;
+  await p.eval(`document.querySelector('#bStage').click(); return 1`);
+  check(!s2.off && await p.eval(`return ${offer}`), 'Le rail ouvre la proposition de parallaxe pour un simple fichier vidéo');
+  await p.eval(`document.querySelector('button[data-tab="notes"]').click(); return 1`);
+  const m2 = await menuIds(p, 'staging');
+  check(JSON.stringify(m2.ids.filter(Boolean)) === JSON.stringify(m1.ids.filter(Boolean)) && !m2.off.staging && /propre logiciel/.test(m2.off.export)
+    && await p.eval(`return ${offer}`), 'Le menu ouvre Scène sur le MP4 ; l’export externe garde son explication');
+  await p.eval(`document.querySelector('button[data-tab="notes"]').click(); document.querySelector('button[data-tab="scene"]').click(); return 1`);
+  check(await p.eval(`return (${offer}) && /vidéo est un rendu/.test(document.querySelector('#scene').innerText)`), 'Scène présente la possibilité de recréer la composition depuis les sources');
+  await p.eval(`document.querySelector('#sceneRequestKeep').click(); return 1`);
+  check(await p.eval(`return !__studio.state().staging && !document.querySelector('#sc-on') && /que sa vidéo/.test(document.querySelector('#scene').innerText)
+    && document.querySelector('#sceneParallaxReopen').offsetWidth > 0`), 'Rester en 2D conserve la lecture du MP4, explique l’absence de calques éditables et permet de rouvrir la proposition');
 } catch (e) {
   check(false, `erreur : ${e.stack ?? e.message}`);
 } finally {

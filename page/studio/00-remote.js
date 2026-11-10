@@ -63,8 +63,12 @@
     const setState = (s) => {
       if (!s) return;
       const freshF = !(s.seen < wroteF), freshS = !(s.seen < wroteS);   // (sent before the preview had the page's last write: not its frame / offsets)
-      if (freshF) { M.frame = s.frame ?? M.frame; M.playing = !!s.playing; }
-      M.ready = s.ready === true; M.loading = !!s.loading; M.crashed = !!s.crashed; M.scene3d = !!s.scene3d; M.buffering = !!s.buffering;
+      if (freshF) {
+        M.frame = s.frame ?? M.frame; M.playing = !!s.playing;
+        M.ready = s.ready === true; M.loading = !!s.loading; M.crashed = !!s.crashed; M.buffering = !!s.buffering;
+        if (s.readiness) M.readiness = s.readiness;
+      }
+      M.scene3d = !!s.scene3d;
       if (s.stage !== undefined && freshS) {
         M.st = s.stage;
         if (s.stage) {   // the objects moved, as the preview says; the one chosen kept (its info from its « select »)
@@ -89,11 +93,12 @@
       if (d.ev) {
         const ev = d.ev;
         const freshF = !(ev.seen < wroteF);   // (a frame of before the page's last seek: not taken)
+        if (!freshF && ['ready-error','loading','loaded','waiting','resume'].includes(ev.type)) return;
         if (freshF && Number.isFinite(ev.frame)) M.frame = ev.frame;
         if (freshF && ev.type === 'play') M.playing = true;
         else if (freshF && (ev.type === 'pause' || ev.type === 'ended')) M.playing = false;
-        else if (ev.type === 'loading') { M.loading = true; M.ready = false; }
-        else if (ev.type === 'loaded') { M.loading = false; M.ready = true; }
+        else if (freshF && ev.type === 'loading') { M.loading = true; M.ready = false; }
+        else if (freshF && ev.type === 'loaded') { M.loading = false; M.ready = true; }
         else if (ev.type === 'error') M.crashed = true;
         if (ev.type === 'waiting') M.buffering = true;
         if (ev.type === 'resume') M.buffering = false;
@@ -135,11 +140,12 @@
     };
     const api = {
       remote: true,
+      frameReadiness: () => M.readiness ? {...M.readiness} : null,
       get durationInFrames() { return M.hello?.durationInFrames ?? 0; }, get fps() { return M.hello?.fps; }, get width() { return M.hello?.width; }, get height() { return M.hello?.height; },
       get ok() { return !!M.hello?.ok; }, get generic() { return !!M.hello?.generic; }, get composition() { return M.hello?.composition; }, get episode() { return M.hello?.episode; }, get hyperframes() { return !!M.hello?.hyperframes; },
       get stage() { return M.hello?.stage ? stage : undefined; },
       frame: () => M.frame, isPlaying: () => M.playing, isBuffering: () => M.buffering, frameReady: () => M.ready, frameLoading: () => M.loading, crashed: () => M.crashed,
-      seek: (f) => { M.frame = Math.max(0, Math.min((M.hello?.durationInFrames ?? 1) - 1, Math.round(f))); send('seek', f); },
+      seek: (f) => { M.readiness = null; M.frame = Math.max(0, Math.min((M.hello?.durationInFrames ?? 1) - 1, Math.round(f))); send('seek', f); },
       play: () => { M.playing = true; return call('play').catch((error) => { M.playing = false; throw error; }); }, pause: () => {
         // the preview frozen (a heavy scene mounting): the pause is queued behind the freeze; the frame on screen when it was
         // asked is where it stops, not where its clock ran meanwhile (user request 03/11/2026: « je ne peux pas l'interrompre »)

@@ -27,6 +27,14 @@ const RENDER_SOURCE = path.join(SANDBOX, 'E03 - The Secret Garden', 'E03 - The S
 // [suite, besoin] : self crée ses serveurs ; sandbox utilise E03 ; render utilise sa copie.
 const SUITES = [
   ['isolation-runtime-test', 'self'],
+  ['workspace-studio-v2', 'self'], ['composition-browser-v2', 'self'], ['timeline-studio-v2', 'self'],
+  ['navigation-studio-v2', 'self'], ['review-integrity-v2', 'self'], ['preview-launch-v2', 'self'],
+  ['timeline-thumbnails-api','self'], ['timeline-filmstrip-browser','self'],
+  ['reverse-analysis','self'], ['reverse-project','self'], ['reverse-jobs','self'], ['reverse-browser','self'],
+  ['reconstruct-agent','self'], ['reconstruct-project','self'], ['reconstruct-jobs','self'], ['reconstruct-browser','self'],
+  ['timeline-code-thumbnails','self'], ['hub-library-v3','self'], ['scene-parallax-request','self'], ['lot-receipts-v2','self'],
+  ['project-output-parity','self'], ['shared-appearance','self'], ['long08-review-guidance','self'],
+  ['export-contract-long08','self'], ['preview-note-readiness','self'],
   ['lot-capture-ui', 'self'], ['lot-frame-list', 'self'], ['lot-images-cli', 'self'], ['lot-sources', 'self'],
   ['lot-updates', 'self'], ['lot-capture-recovery', 'self'], ['lot-capture-workspace', 'self'], ['envoi-performance', 'self'],
   ['shot-render-regressions', 'self'],
@@ -36,7 +44,7 @@ const SUITES = [
   ['audio-regressions', 'self'], ['player-build-regressions', 'self'], ['require-context', 'self'], ['preview-transaction-regressions', 'self'], ['initial-code-mode', 'self'], ['preview-protocol-regressions', 'self'], ['preview-lifecycle', 'self'], ['preview-server-regressions', 'self'], ['project-patches', 'self'], ['project-patches-e15', 'self'], ['timeline-loop-regressions', 'self'], ['code-playback-regressions', 'self'], ['code-playback-render-regressions', 'self'], ['frames-cache-regressions', 'self'], ['code-playback-sources', 'self'], ['code-playback-ui', 'self'], ['code-playback-routes', 'self'], ['render-activity', 'self'], ['code-playback-browser', 'self'],
   ['typecheck', 'self'], ['guard', 'self'], ['temp-sweep', 'self'], ['file-release', 'self'], ['export-speed', 'self'], ['speed-envois', 'self'], ['send-lots', 'self'], ['notes-safety', 'self'], ['note-states', 'self'], ['note-follow', 'self'], ['dictate', 'self'], ['browser-access', 'self'], ['preview-memory', 'self'], ['preview-speed', 'self'], ['coulisses', 'self'], ['coulisses-video', 'self'], ['coulisses-export', 'self'], ['projects', 'self'],
   ['hub-folders', 'self'], ['new-project', 'self'], ['medias', 'self'], ['shortcuts', 'self'], ['staging2d', 'self'], ['menu', 'self'], ['i18n', 'self'],
-  ['hyperframes', 'self'], ['ipad-layout', 'self'], ['e2e', 'sandbox'], ['staging', 'sandbox'], ['grade', 'sandbox'], ['e2e-agent', 'sandbox'], ['sound-recovery', 'sandbox'], ['sound-watch', 'self'], ['sound-tab', 'self'], ['review-sound', 'self'], ['preview-wait', 'self'], ['timeline-draw', 'self'], ['preview-premount', 'self'], ['staging3d-run', 'self'], ['shot-render', 'self'], ['app', 'self'], ['render', 'render'],
+  ['hyperframes', 'self'], ['ipad-layout', 'self'], ['e2e', 'sandbox'], ['staging', 'sandbox'], ['grade', 'sandbox'], ['e2e-agent', 'self'], ['sound-recovery', 'sandbox'], ['sound-watch', 'self'], ['sound-tab', 'self'], ['review-sound', 'self'], ['preview-wait', 'self'], ['timeline-draw', 'self'], ['preview-premount', 'self'], ['staging3d-run', 'self'], ['shot-render', 'self'], ['app', 'self'], ['render', 'render'],
 ].filter(([n]) => (only ? only.includes(n) : !skip.has(n) && !(quick && ['app', 'render', 'staging3d-run', 'code-playback-browser'].includes(n))));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));   // COULISSES_TEST_SLOW=2: a slower PC

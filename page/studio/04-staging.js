@@ -151,12 +151,13 @@
     markSceneBar(); if (staging) markStageBar(); else $('#stage').classList.remove('freecam');
     const box = $('#scene'); if (!box) return;
     const a = document.activeElement; if (a && box.contains(a) && /^(INPUT|SELECT)$/.test(a.tagName) && !renderScene.force) return;   // never under the user's typing
+    if (window.CoulissesScene?.render(box)) return;
     if (stageWhy()) { box.innerHTML = `<div class="box"><div class="ttl">${T('st.scene.introTitle')}</div><p class="muted">${esc(stageWhy())}</p></div>`; return; }
     const two = staging ? D2() : PROJ && !SP?.stage?.scene3d;   // a run's HTML preview: 2D; an episode, a 3D shot: the Theatre's 3D
     if (!staging) {
       box.innerHTML = `<div class="box"><div class="ttl">${T('st.scene.introTitle')}</div>${stepsHtml(['st.scene.step1', two ? 'st.scene.step2run' : 'st.scene.step2', 'st.scene.step3'])}
         <div class="row"><button class="primary" id="sc-on">${ic('move')}${T('st.scene.enable')}</button></div></div>` + listHtml();
-      $('#sc-on').onclick = () => setStaging(true); bindList(); return;
+      $('#sc-on').onclick = () => window.CoulissesScene.open(true); bindList(); return;
     }
     if (D2()) return renderScene2d(box);
     const sel = stSel, t = sel ? stageName(sel.id, sel) : null, d = sel?.delta ?? { p: [0, 0, 0], r: [0, 0, 0], s: 1 }, sc = scopeOf();
@@ -282,5 +283,5 @@
     if (freeWas && !two) { freeCamOn = !!(await SP.stage.freeCamera(true)); }
     setSave(T('st.stage.added'), 'ok'); setTab('scene'); renderAll(); renderScene();
   }
-  $('#bStage').onclick = () => { const why = stageWhy(); if (why) { setSave(why, 'err'); setTab('scene'); return; } setStaging(!staging); };
+  $('#bStage').onclick = () => window.CoulissesScene.open(true);
 

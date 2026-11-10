@@ -1,0 +1,114 @@
+.reverse-actions { margin-left:auto; display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.reverse-actions button { padding:4px 11px; white-space:normal; }
+#reconstructOpen { color:var(--mint); border:1px solid #3b6154; background:#1b3028; }
+.rc-content { padding:18px 20px; display:grid; gap:12px; }
+.rc-content p { margin:0; overflow-wrap:anywhere; }
+.rc-content label { display:grid; gap:4px; }
+.rc-content select { padding:7px; background:#182126; border:1px solid #475450; border-radius:4px; color:inherit; }
+.rc-content .rc-hint { color:#acbcb5; font-size:13px; }
+.rc-content progress { width:100%; accent-color:var(--mint); }
+.rc-content output { overflow-wrap:anywhere; }
+.rc-content pre { max-height:140px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:#d2dfd9; user-select:all; }
+#reconstructDialog .rv-footer { flex-wrap:wrap; justify-content:flex-end; }
+.feature-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+#featureReverse { font-size:12px; min-height:32px; }
+:is(#reverseDialog,#reconstructDialog) { width:min(1020px,calc(100vw - 32px)); max-width:none; max-height:calc(100dvh - 32px); margin:auto; padding:0; border:1px solid #47554f; border-radius:12px; background:#181f23; color:var(--ink,#e3ece8); box-shadow:0 25px 90px #0009; font:14px/1.4 var(--font); }
+:is(#reverseDialog,#reconstructDialog)::backdrop { background:#060c11c9; }
+:is(#reverseDialog,#reconstructDialog):not(:has(.rv-editor)) { width:min(590px,calc(100vw - 32px)); }
+.rv-shell { display:flex; flex-direction:column; max-height:calc(100dvh - 36px); }
+.rv-header,.rv-footer { display:flex; align-items:center; gap:12px; flex:none; padding:14px 20px; }
+.rv-header { border-bottom:1px solid var(--line); }
+.rv-header h2 { margin:0; color:var(--ink); font:600 19px/1.25 var(--font-d); letter-spacing:-.02em; }
+.rv-header button { margin-left:auto; }
+.rv-body { min-height:0; overflow:auto; overscroll-behavior:contain; }
+:is(#reverseDialog,#reconstructDialog) :where(button,input,textarea) { color:inherit; font-family:inherit; }
+:is(#reverseDialog,#reconstructDialog) button { height:auto; min-height:32px; border:1px solid #46534f; border-radius:5px; padding:4px 10px; white-space:normal; }
+:is(#reverseDialog,#reconstructDialog) button.soft { color:#d5dfdb; background:#222c30; }
+:is(#reverseDialog,#reconstructDialog) button.soft:hover { border-color:#71877e; }
+:is(#reverseDialog,#reconstructDialog) button:disabled { opacity:.42; }
+:is(#reverseDialog,#reconstructDialog) button.rv-primary { color:#10281e; background:var(--mint); border-color:var(--mint); font-weight:650; }
+:is(#reverseDialog,#reconstructDialog) :focus-visible { outline:2px solid var(--mint); outline-offset:2px; }
+:is(#reverseDialog,#reconstructDialog) input:not([type=range]):not([type=checkbox]),:is(#reverseDialog,#reconstructDialog) textarea { width:100%; box-sizing:border-box; background:#12191d; border:1px solid #475450; border-radius:4px; padding:6px 9px; font-size:13px; }
+:is(#reverseDialog,#reconstructDialog) input[type=checkbox],:is(#reverseDialog,#reconstructDialog) input[type=range],.rv-progress progress { accent-color:var(--mint); }
+:is(#reverseDialog,#reconstructDialog) label { font:500 12px/1.35 var(--font); color:#c0cec8; }
+.rv-footer { justify-content:flex-end; border-top:1px solid var(--line); background:#1c2428; }
+.rv-error { margin:0; padding:8px 20px; color:var(--coral,#ffb6a9); overflow-wrap:anywhere; }
+.rv-intake,.rv-complete,.rv-progress { padding:19px 22px 22px; }
+.rv-intake p,.rv-complete p,.rv-progress p { margin:0 0 15px; color:#bdcac7; overflow-wrap:anywhere; }
+.rv-intake label { display:block; margin-bottom:5px; }
+.rv-file { display:flex; gap:6px; margin-bottom:15px; }
+.rv-file input { min-width:0; }
+.rv-progress progress { width:80%; }
+#rvPct { margin-left:8px; font-variant-numeric:tabular-nums; }
+.rv-summary { display:flex; align-items:center; gap:9px; padding:10px 16px; background:#20282c; border-bottom:1px solid var(--line); }
+:is(#reverseDialog,#reconstructDialog) #rvProjectName { width:min(45%,400px); }
+#rvFormat,#rvTotal,#rvCount { color:#a6b7b0; font-size:12px; font-variant-numeric:tabular-nums; }
+#rvFormat { margin-left:auto; }
+.rv-editor { display:grid; grid-template-columns:minmax(180px,24%) minmax(0,1fr); min-height:280px; }
+.rv-bins { background:#191f23; border-right:1px solid var(--line); padding:12px 8px 18px; }
+.rv-list-head { display:flex; gap:8px; align-items:center; margin:0 5px 8px; }
+.rv-list-head h3 { margin:0; font:600 14px var(--font-d); }
+#rvShots { display:flex; flex-direction:column; gap:4px; max-height:57dvh; overflow:auto; overscroll-behavior:contain; }
+:is(#reverseDialog,#reconstructDialog) .rv-shot { display:flex; align-items:center; flex:none; gap:8px; width:100%; padding:5px; background:transparent; border:1px solid transparent; color:var(--ink); text-align:left; }
+:is(#reverseDialog,#reconstructDialog) .rv-shot[aria-pressed=true] { background:#233b31; border-color:#456e5d; }
+.rv-shot img { width:53px; aspect-ratio:1.65; flex:none; object-fit:cover; border-radius:3px; background:#11181a; }
+.rv-shot span { display:grid; gap:2px; min-width:0; }
+.rv-shot span > * { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rv-shot strong { font:600 12px var(--font); }
+.rv-shot small { font:11px var(--font); color:#a8b8b1; }
+.rv-inspector { min-width:0; padding:12px 16px 14px; }
+.rv-monitor { position:relative; display:flex; align-items:center; justify-content:center; min-height:120px; border-radius:5px; background:#0b0e11; overflow:hidden; }
+#rvViewport { position:relative; width:min(100%,calc(31dvh * var(--rv-ratio))); overflow:hidden; background:#000; }
+#rvCanvas { position:absolute; left:0; top:0; transform-origin:top left; overflow:hidden; }
+#rvBase { position:absolute; inset:0; }
+#rvMask,#rvInsetBox,#rvInsetImage,#rvMarquee { position:absolute; }
+#rvInsetBox { overflow:hidden; transform-origin:top left; }
+#rvInsetImage { max-width:none; }
+#rvViewport.rv-choosing { cursor:crosshair; touch-action:none; user-select:none; }
+#rvViewport.rv-choosing img { pointer-events:none; }
+#rvMarquee { outline:4px solid #80f5c5; background:#80f5c52e; pointer-events:none; }
+#rvImage { width:100%; height:100%; display:block; object-fit:fill; }
+#rvImage[hidden],#rvLayer[hidden],:is(#reverseDialog,#reconstructDialog) [hidden] { display:none !important; }
+#rvLayer { position:absolute; white-space:pre-wrap; overflow-wrap:anywhere; font:700 32px/1.15 Arial,sans-serif; box-sizing:border-box; pointer-events:none; }
+#rvImageState { color:#c3d3cb; position:absolute; font-size:12px; padding:3px 6px; background:#101719cc; border-radius:3px; pointer-events:none; }
+#rvImageState:empty { display:none; }
+.rv-scrub { margin:8px 0; display:flex; gap:6px; align-items:center; }
+.rv-scrub input[type=range] { min-width:35px; flex:1; }
+:is(#reverseDialog,#reconstructDialog) #rvFrame { width:84px; }
+.rv-buttons { display:flex; gap:5px; flex-wrap:wrap; }
+:is(#reverseDialog,#reconstructDialog) .rv-buttons button { min-height:26px; padding:3px 7px; font-size:11px; }
+.rv-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:8px 0 7px; }
+.rv-timing { grid-template-columns:1.45fr 1fr 1fr; }
+.rv-grid label { display:grid; align-content:start; gap:3px; min-width:0; }
+:is(#reverseDialog,#reconstructDialog) .rv-grid input[type=color] { padding:2px 4px; height:31px; }
+.rv-fields details { border-top:1px solid #38433e; }
+.rv-fields summary { cursor:pointer; padding:7px 0; color:#cfe1d9; font-size:12px; font-weight:600; }
+.rv-grid label:has(textarea),#rvOcr { grid-column:1/-1; }
+.rv-grid textarea { min-height:42px; resize:vertical; }
+.rv-grid .rv-check { display:flex; flex-direction:row; gap:5px; align-self:center; align-items:center; }
+#rvLines { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; color:#b9c9c1; font-size:12px; }
+#rvLines button { text-align:left; }
+#rvTotal { margin-right:auto; }
+@media(max-width:680px) {
+  .library-heading { flex-wrap:wrap; }
+  #reverseOpen { min-height:32px; font-size:11px; padding:4px 7px; }
+  #libraryNavToggle { margin-left:0; font-size:11px; }
+  :is(#reverseDialog,#reconstructDialog),:is(#reverseDialog,#reconstructDialog):not(:has(.rv-editor)) { width:calc(100vw - 12px); max-height:calc(100dvh - 12px); }
+  .rv-shell { max-height:calc(100dvh - 16px); }
+  .rv-header,.rv-footer { gap:6px; padding:10px; }
+  .rv-header h2 { font-size:16px; }
+  .rv-editor { display:flex; flex-direction:column; }
+  .rv-bins { padding:6px 10px; border-right:0; border-bottom:1px solid var(--line); }
+  #rvShots { flex-direction:row; overflow:auto; padding-bottom:2px; }
+  :is(#reverseDialog,#reconstructDialog) .rv-shot { width:auto; max-width:155px; flex-shrink:0; padding-right:8px; }
+  .rv-shot img { width:38px; }
+  .rv-list-head { margin-bottom:3px; }
+  .rv-inspector { padding:8px 10px; }
+  .rv-summary { padding:7px 10px; flex-wrap:wrap; }
+  :is(#reverseDialog,#reconstructDialog) #rvProjectName { width:auto; flex:1; min-width:100px; }
+  #rvFormat { font-size:10px; }
+  #rvTotal { font-size:10px; }
+  :is(#reverseDialog,#reconstructDialog) .rv-footer button { font-size:11px; }
+  .rv-timing { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rv-timing label:first-child {grid-column:1/-1;}
+}

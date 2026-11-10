@@ -52,7 +52,10 @@
   };
   const stateOf = (withStage) => {
     const p = sp(); if (!p) return null;
-    const s = { seen, frame: p.frame(), playing: !!p.isPlaying(), buffering: !!p.isBuffering?.(), ready: p.frameReady?.() !== false, loading: !!p.frameLoading?.(), crashed: !!p.crashed?.(), scene3d: !!p.stage?.scene3d };
+    const frame = p.frame(), status = p.frameReadiness?.();
+    const readiness = status && {frame, state:status.state, verified:status.verified === true, reason:status.reason ?? null,
+      staleLegacy:status.staleLegacy || 0, version:release.version, hash:release.hash || null};
+    const s = { seen, frame, playing: !!p.isPlaying(), buffering: !!p.isBuffering?.(), ready: status ? status.displayable : p.frameReady?.() !== false, readiness, loading: !!p.frameLoading?.(), crashed: !!p.crashed?.(), scene3d: !!p.stage?.scene3d };
     if (withStage) s.stage = stageState();
     return s;
   };
@@ -96,7 +99,12 @@
     const p = sp();
     if (!p) { setTimeout(hello, 50); return; }
     post({ hello: { v: release.version, hash: release.hash, durationInFrames: p.durationInFrames, fps: p.fps, width: p.width, height: p.height, ok: p.ok, generic: !!p.generic, composition: p.composition ?? null, episode: p.episode ?? null, stage: !!p.stage, hyperframes: !!p.hyperframes }, state: stateOf(true) });
-    p.on((ev) => post({ ev: { ...ev, seen } }));
+    p.on((ev) => {
+      // The last inspected frame and its quality travel together on seek,
+      // load and pause. Playback frameupdate does not scan the entire scene.
+      const report = ['seeked','pause','loaded','loading','ready-error','error','waiting','resume'].includes(ev.type);
+      post({ ev: { ...ev, seen }, ...(report ? {state:stateOf(false)} : {}) });
+    });
     p.stage?.on?.((ev) => { post({ stageEv: quiet ? { ...ev, quiet: true } : ev }); pushStage(); });
   })();
   const health = setInterval(() => { if (sp()) post({ heartbeat: true, state: stateOf(false) }); }, 1000);

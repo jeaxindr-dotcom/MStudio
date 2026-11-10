@@ -3,43 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Studio de revue</title>
+<title>{{common.productName}}</title>
 <link rel="icon" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<!--
-  Studio de revue Remotion — Brambleshire Theatre (design « glass » sombre et coloré). Évolution de 06_Remotion/review/review.html (tout y est gardé :
-  notes sur une image / une plage, images jointes, conversation par note, recalage après re-rendu), en mise en page de
-  studio dans l'esprit de HyperFrames Studio. Design : sombre et doux (gris chauds de la palette Radix « sand », un seul
-  accent miel), icônes au trait, pas d'émoji. Timeline façon DaVinci Resolve : molette = pistes haut / bas,
-  Ctrl+molette = défiler dans le temps, Alt+molette = zoom horizontal, Maj+molette = hauteur des pistes.
-  Fichiers : revue/notes.json est écrit par cette page seule ; l'agent écrit revue/replies.json (lu toutes les 3 s).
--->
 <link rel="stylesheet" href="/studio.css">
+<link rel="stylesheet" href="/studio-tools.css">
 <!--I18N-->
 </head>
-<body>
+<body data-product="{{common.productName}}">
 <nav id="menubar"></nav>
 <!-- the layout (user request, 09/10/2026, after a video editor's): the agent's column on the left, the image in the
      middle with its tools and its transport under it, the media and the notes on the right, the timeline the whole width
      under them, a slim rail on the far left; the top bar: « Projets / name », the state, the main action -->
 <header>
-  <a class="logo" id="logo" title="Coulisses">C</a>
+  <a class="logo" id="logo" title="{{common.productName}}" aria-label="{{common.productName}}"><svg viewBox="0 0 30 26" width="27" height="24" aria-hidden="true"><path fill="currentColor" d="m1 20 9-16h5L6 20zM10 20l9-16h5l-9 16zM19 20l7-12 3 5-4 7z"/></svg><span>{{common.productName}}</span></a>
   <a class="crumb" id="crumb">{{st.top.projects}}</a><span class="crumbSep" id="crumbSep">/</span>
-  <h1 id="title">Studio</h1><span id="kindTag"></span><span class="sub" id="render"></span>
+  <h1 id="title">Studio</h1><span id="kindTag"></span>
   <span class="grow"></span>
   <!-- the studio's pages (user request, 09/10/2026: « une page à part, un peu comme DaVinci Resolve »): the review, the grading -->
   <span class="seg pages" id="pageSeg"><button data-page="review" class="on">{{st.page.review}}</button><button data-page="grade" title="{{st.page.gradeTitle}}">{{st.page.grade}}</button></span>
-  <span id="save">—</span>
+  <button id="workspaceButton" aria-haspopup="dialog" aria-controls="workspaceDialog"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m0-5h12"/></svg><span id="workspaceButtonName"></span><span class="ws-chevron" aria-hidden="true"></span></button>
+  <button id="studioCommands" aria-keyshortcuts="Control+K Meta+K"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><kbd>Ctrl K</kbd></button>
   <button id="helpBtn" title="{{st.help.title}}" aria-label="{{st.help.aria}}"><i data-ic="question"></i></button>
   <button id="renderPill" title="{{st.pill.title}}"><span class="t">{{st.rc.render}}</span><span class="mini"><i></i></span></button>
   <button id="agent" title="{{st.agent.title}}"><span class="dot"></span><span class="t">{{st.agent.connect}}</span></button>
-  <button id="hdrGo" style="display:none"><i data-ic="film"></i><span class="t"></span></button>
+  <button id="hdrGo" title="{{menu.render}}"><i data-ic="film"></i><span class="t">{{st.rc.render}}</span></button>
+  <button id="hdrExport" aria-haspopup="dialog" aria-controls="outputDialog" title="{{common.exportVideo}}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg><span class="t">{{common.exportVideo}}</span></button>
 </header>
 <div id="app">
   <nav id="rail" class="glass">
     <button id="bHome"><i data-ic="home"></i><span class="tipr"><span>{{st.start.home}}</span><span class="why"></span></span></button>
     <div class="sep"></div>
+    <button id="bChatAgent" aria-label="{{st.chat.open}}" title="{{st.chat.open}}"><i data-ic="sparkle"></i><span class="tipr">{{st.chat.open}}</span></button>
     <button id="bNote"><i data-ic="plus"></i><span class="tipr">{{st.rail.note}}</span></button>
     <button id="bRange"><i data-ic="range"></i><span class="tipr">{{st.rail.range}}</span></button>
     <!-- the dictation (page/studio/17-dictate.js): held or clicked, the words said become a note -->
@@ -61,6 +57,7 @@
       <div class="who" id="agentWho"><span class="dot"></span><span class="t"></span></div>
       <div class="scroll" id="agentList"></div>
       <div class="foot">
+        <div id="reverseActions" hidden><button type="button" class="soft" id="reverseOpenEdit"></button> <button type="button" class="soft" id="reverseAgentBrief"></button></div>
         <textarea id="agentText" placeholder="{{st.ag.placeholder}}"></textarea>
         <button id="agentSend" class="primary">{{st.ag.send}}</button>
         <span class="muted" id="agentHint" style="font-size:11.5px"></span>
@@ -84,6 +81,7 @@
   <div class="split v" id="splitL" title="{{st.splitV}}"></div>
   <section id="viewer" class="glass">
     <div id="viewbar">
+      <span class="dock-heading" data-workspace-label="monitor"></span>
       <span class="seg" title="{{st.src.title}}">
         <button id="srcVideo" class="on"><i data-ic="film"></i>{{st.src.video}}</button><button id="srcCode"><i data-ic="code"></i>{{st.src.code}}</button>
       </span>
@@ -91,6 +89,10 @@
       <span class="grow"></span>
       <button id="open3d" class="soft" style="display:none"><i data-ic="move"></i><span></span></button>
       <span id="proxy"></span>
+      <div class="monitorGuides">
+        <button id="guideThirds" class="icon" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4v16m6-16v16M3 9.3h18M3 14.7h18"/></svg></button>
+        <button id="guideSafe" class="icon" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="16" rx="1"/><rect x="6.5" y="7.5" width="11" height="9" rx=".5"/></svg></button>
+      </div>
     </div>
     <div id="warn"></div>
     <div id="codeErr"></div>
@@ -110,6 +112,7 @@
                its left edge is the before / after wipe -->
           <div id="cgFx"><div id="cgVig"></div><canvas id="cgGrain"></canvas></div>
           <canvas id="ov" class="select"></canvas>
+          <div id="frameGuides" aria-hidden="true"><div class="thirds"></div><div class="safe outer"></div><div class="safe inner"></div></div>
           <div id="hoverTag"></div>
           <button id="pickBtn" class="primary" title="{{st.pick.title}}">{{st.pick.text}}</button>
           <div id="pop">
@@ -185,6 +188,7 @@
   <div class="split h" id="splitH" title="{{st.splitH}}"></div>
   <section id="tlpanel" class="glass">
     <div id="tlbar">
+      <span class="dock-heading timeline-heading"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5v14m4-12h10M7 12h14M7 17h7"/></svg><span data-workspace-label="timeline"></span></span>
       <div id="context">—</div>
       <span class="zoom">
         <button id="bZoomOut" class="icon" title="{{st.tl.zoomOut}}"><i data-ic="minus"></i></button>
@@ -232,6 +236,21 @@
   </div>
 </div>
 <svg id="cgDefs" width="0" height="0" style="position:absolute" aria-hidden="true"></svg>
+<footer id="studioStatus"><span id="save" role="status">—</span><span id="render"></span><span id="monitorSpec"></span></footer>
+<dialog id="workspaceDialog" aria-labelledby="workspaceDialogTitle">
+  <div class="ws-top"><h2 id="workspaceDialogTitle" data-workspace-label="workspaces"></h2><button class="icon" id="workspaceClose" autofocus><i data-ic="x"></i></button></div>
+  <fieldset class="ws-modes"><legend data-workspace-label="layout"></legend>
+    <label><input type="radio" name="workspace-mode" value="review"><span class="ws-diagram review"></span><span data-workspace-label="review"></span></label>
+    <label><input type="radio" name="workspace-mode" value="edit"><span class="ws-diagram edit"></span><span data-workspace-label="edit"></span></label>
+    <label><input type="radio" name="workspace-mode" value="screen"><span class="ws-diagram screen"></span><span data-workspace-label="screen"></span></label>
+  </fieldset>
+  <fieldset class="ws-panels"><legend data-workspace-label="panels"></legend>
+    <label><input type="checkbox" data-panel="left" aria-controls="lside"><span data-workspace-label="left"></span></label>
+    <label><input type="checkbox" data-panel="right" aria-controls="side"><span data-workspace-label="right"></span></label>
+    <label><input type="checkbox" data-panel="timeline" aria-controls="tlpanel"><span data-workspace-label="timeline"></span></label>
+  </fieldset>
+  <button type="button" id="workspaceReset"><i data-ic="reset"></i><span data-workspace-label="reset"></span></button>
+</dialog>
 <div class="menu" id="menu"></div>
 <div id="lb"><img alt=""></div>
 <div id="cmp"><div class="box">

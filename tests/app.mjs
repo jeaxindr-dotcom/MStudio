@@ -52,6 +52,7 @@ try {
   await send('Runtime.enable'); await send('Page.enable');
   const chromeArguments = (await send('Browser.getBrowserCommandLine')).arguments;
   check(chromeArguments.includes('--mute-audio'), 'le navigateur lancé par le binaire de test est explicitement muet');
+  check(chromeArguments.includes('--coulisses-role=interactive-preview'), 'le processus du navigateur interactif est identifiable par la file GPU');
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: `(async () => { ${expr} })()`, awaitPromise: true, returnByValue: true })).result.value;
   const until = async (expr, ms = 60000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await ev(`return !!(${expr})`)) return true; } catch { /* navigating */ } await sleep(300); } return false; };
   await until(`document.querySelectorAll('.card').length > 0`);

@@ -62,6 +62,7 @@
   async function dicStart(how = 'key') {
     if (DIC.on || DIC.busy) return;
     DIC.target = targetNow(); DIC.f0 = curFrame(); DIC.cancel = false; DIC.peak = 0; DIC.chunks = [];
+    if (DIC.target.note) { DIC.target.source = mode; DIC.target.evidence = previewNoteReadiness(DIC.f0); }
     if (DIC.target.note && queueFull()) return;
     if (!M.paused) M.pause();
     DIC.on = true; dicShow('wait');
@@ -99,7 +100,7 @@
     const text = String(r.text ?? '').trim();
     if (!text) { setSave(TN('st.dic.nothing'), ''); return; }
     if (target.note) {   // a new note at the frame where F2 was pressed, its words in it, ready to be read again
-      const n = addNote(f0, null, false, { text }); if (!n) return;
+      const n = addNote(f0, null, false, {text,source:target.source,...(target.evidence ? {previewReadiness:target.evidence} : {})}); if (!n) return;
       requestAnimationFrame(() => { const ta = document.querySelector(`.card[data-id="${n.id}"] textarea.main`); if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.scrollIntoView({ block: 'nearest' }); } });
     } else {
       const el = targetEl(target);

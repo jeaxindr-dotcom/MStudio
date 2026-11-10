@@ -1,0 +1,28 @@
+MStudio for Windows
+
+The LICENSE file next to MStudio.exe covers MStudio's own code. The
+third-party components below carry their respective license notices.
+
+Node.js and npm
+Node.js 24.22.2 is distributed in runtime/. See Node-LICENSE.txt and the
+licenses inside runtime/node_modules/npm/.
+https://nodejs.org/dist/v24.22.2/
+
+FFmpeg and ffprobe
+The FFmpeg 8.0 Windows x64 shared build is distributed by Gyan Doshi.
+FFmpeg-LICENSE.txt and FFmpeg-README.txt contain the license, build
+configuration and upstream source revision for this build.
+https://github.com/GyanD/codexffmpeg/releases/tag/8.0
+https://github.com/FFmpeg/FFmpeg/tree/140fd653ae
+
+Remotion
+The version used by the bundled render engine is recorded in
+engine/package-lock.json. See Remotion-LICENSE.md for the terms of the
+Free License and the Company License. See Remotion-THIRD-PARTY-LICENSES.md
+and the individual licenses shipped in engine/node_modules/ for dependencies.
+https://www.remotion.dev/license
+
+Microsoft Edge WebView2
+The Microsoft WebView2 bindings include Microsoft.Web.WebView2.txt.
+The installer includes Microsoft's Evergreen WebView2 Runtime installer.
+https://developer.microsoft.com/microsoft-edge/webview2/

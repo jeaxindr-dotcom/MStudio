@@ -54,13 +54,12 @@
     const opts = META.exportOptions?.length ? META.exportOptions : [{ id: null, label: T('common.exportVideo') }];
     // a script's variants: « 1080p » / « 4k » by their id, else by their words (宇宙ちゃん: « final » = « Exporter (4K final) »,
     // « test » = « Rendu test (1080p) », a whole video in 1080p); a test or a replacement only when nothing else is that size
-    const words = (o) => `${o.id ?? ''} ${o.label ?? ''}`, side = (o) => /\b(test|essai|remplac\w*|replace)\b/i.test(words(o));
+    const words = (o) => `${o.id ?? ''} ${o.label ?? ''} ${o.resolution ?? ''}`, side = (o) => o.scope!=='full' && (o.scope==='excerpt' || /\b(test|essai|remplac\w*|replace)\b/i.test(words(o)));
     const is4k = (o) => /\b(4k|2160p?|uhd)\b/i.test(words(o)), is1080 = (o) => /\b1080p?\b/i.test(words(o));
     const o4 = opts.find((o) => o.id === '4k') ?? opts.find((o) => is4k(o) && !side(o)) ?? null;
-    const o1 = opts.find((o) => o.id === '1080p') ?? opts.find((o) => o !== o4 && is1080(o) && !side(o))
-      ?? (o4 ? null : opts.find((o) => !side(o) && !is4k(o))) ?? opts.find((o) => o !== o4 && is1080(o)) ?? (o4 ? null : opts[0]);
-    return [{ id: '1080p', label: '1080p', send: o1?.id ?? null, why: why ?? (o1 ? null : TN('st.q.no1080')) },
-      { id: '4k', label: '4K', send: o4?.id ?? null, why: why ?? (o4 ? null : TN('st.q.no4k')) },
+    const o1 = opts.find((o) => o.id === '1080p' && !side(o)) ?? opts.find((o) => o !== o4 && is1080(o) && !side(o));
+    return [{ id: '1080p', label: o1?.scope ? o1.label : '1080p', send: o1?.id ?? null, why: why ?? (o1 ? null : TN('st.q.no1080')) },
+      { id: '4k', label: o4?.scope ? o4.label : '4K', send: o4?.id ?? null, why: why ?? (o4 ? null : TN('st.q.no4k')) },
       ...opts.filter((o) => o !== o1 && o !== o4).map((o) => ({ id: `x:${o.id}`, label: o.label, send: o.id, why }))];
   }
   function quality() {
@@ -244,7 +243,7 @@
     let h = `<div class="rh" title="${esc(where.replace(/<[^>]+>/g, ''))}">${ic('film')}<b>${T('st.rc.render')}</b><span class="muted">${esc(right)}</span></div>
       <div class="sub2">${cur ? T('st.ex.file', { name: esc(cur.name), date: dayTime(cur.mtime), w: CW, h: CH, fps: dec(FPS) }) : LIVEP() ? TN('st.rc.liveCode', { comp: esc(META.composition ?? ''), w: CW, h: CH, fps: dec(FPS) }) : T('st.ex.noVideo')}</div>`;
     h += shotBlock() + qualityHtml(run, run ? (X.qualite ?? qualities()[0].send) : null);
-    const can = !qualities().every((x) => x.why), why = qualities()[0].why;
+    const can = !qualities().every((x) => x.why), why = META.exportWhy || qualities()[0].why;
     const reveal = X?.state === 'done' && X.file ? `<button class="soft" id="rcReveal" title="${esc(X.file)}">${ic('folder')}${T('st.rc.reveal')}</button>`
       : cur ? `<button class="soft" id="rcReveal" title="${esc(T('st.rc.revealTitle', { name: cur.name }))}">${ic('folder')}${T('st.rc.reveal')}</button>` : '';
     const cmp = STATUS.compare?.length ? `<button class="soft" id="rcCmp">${ic('image')}${T('st.rc.compare', { n: STATUS.compare.length })}</button>` : '';
@@ -432,9 +431,8 @@
     const r = await postJson('/api/render', { agent: AGENT_PICK, vitesse, qualite: q.send });
     if (!r?.ok) { setSave(T('st.launch.failed', { why: r?.why ?? T('st.launch.noStudio') }), 'err'); return; }
     statusTxt = ''; rcKey = '';
-    showModal(T('st.launch.title', { lot: r.lot }),
-      r.agent?.watching ? T('st.launch.gotIt', { name: agentName() }) : T('st.launch.paste', { name: agentName() }),
-      r.line, T('st.launch.progress'), { updates: r.updates, updatesOk: r.updatesOk, received: !!r.agent?.watching });
+    showDeliveryModal(r.lot, T('st.launch.title', { lot: r.lot }),
+      r.line, T('st.launch.progress'), { updates: r.updates, updatesOk: r.updatesOk });
     setTab('lots');
   }
   async function stopRender() {

@@ -26,6 +26,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 
+#if !MSTUDIO
 [assembly: System.Reflection.AssemblyTitle("Coulisses")]
 [assembly: System.Reflection.AssemblyProduct("Coulisses")]
 [assembly: System.Reflection.AssemblyDescription("Coulisses : relire et annoter ses vidéos avant l'export")]
@@ -95,7 +96,7 @@ static class Launcher
             return 0;
         }
         ProcessStartInfo w = new ProcessStartInfo(browser,
-            "--app=" + Q(url) + " --user-data-dir=" + Q(profile) +
+            "--app=" + Q(url) + " --user-data-dir=" + Q(profile) + " --coulisses-role=interactive-preview" +
             " --no-first-run --no-default-browser-check --disable-features=Translate,TranslateUI,msUndersideButton --autoplay-policy=no-user-gesture-required --window-size=1680,1020" +
             // tests (tests/app.mjs): the same window, invisible and driven through the DevTools protocol
             (TestPort() != null ? " --headless=new --remote-debugging-port=" + TestPort() : ""));
@@ -195,6 +196,8 @@ static class Launcher
     static void Fail(string m) { MessageBox.Show(m, App, MessageBoxButtons.OK, MessageBoxIcon.Error); }
 }
 
+#endif
+
 // The Windows « open » dialog (the modern one, IFileOpenDialog), to import a project: a folder, or a video file.
 // The home screen runs it in the background, so it is owned by an invisible topmost window brought to the front:
 // otherwise Windows would leave it behind the studio's window.
@@ -250,14 +253,20 @@ static class Picker
     {
         IFileDialog d = (IFileDialog)new FileOpenDialogCom();
         bool proj = mode == "project" || mode == "project-check", folder = mode != "video" && !proj;
+#if MSTUDIO
+        const string VIDEOS = "*.mp4;*.mov;*.m4v;*.mkv;*.webm;*.avi;*.mts;*.m2ts";
+        const string product = "MStudio";
+#else
         const string VIDEOS = "*.mp4;*.mov;*.m4v;*.mkv;*.webm";
+        const string product = "Coulisses";
+#endif
         d.SetOptions(FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | (folder ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST));
         d.SetTitle(proj ? L.T("Ouvrir un projet : un fichier .coulisses ou une vidéo", "Open a project: a .coulisses file or a video")
             : folder ? L.T("Importer un projet : choisis son dossier", "Import a project: choose its folder") : L.T("Importer une vidéo", "Import a video"));
         d.SetOkButtonLabel(proj ? L.T("Ouvrir", "Open") : L.T("Importer", "Import"));
         if (proj) d.SetFileTypes(4, new[] {
-            new FilterSpec { Name = L.T("Projets Coulisses et vidéos", "Coulisses projects and videos"), Spec = "*.coulisses;" + VIDEOS },
-            new FilterSpec { Name = L.T("Projets Coulisses", "Coulisses projects"), Spec = "*.coulisses" },
+            new FilterSpec { Name = L.T("Projets " + product + " et vidéos", product + " projects and videos"), Spec = "*.coulisses;" + VIDEOS },
+            new FilterSpec { Name = L.T("Projets " + product, product + " projects"), Spec = "*.coulisses" },
             new FilterSpec { Name = L.T("Vidéos", "Videos"), Spec = VIDEOS }, new FilterSpec { Name = L.T("Tous les fichiers", "All files"), Spec = "*.*" } });
         else if (!folder) d.SetFileTypes(2, new[] { new FilterSpec { Name = L.T("Vidéos", "Videos"), Spec = VIDEOS }, new FilterSpec { Name = L.T("Tous les fichiers", "All files"), Spec = "*.*" } });
         if (!string.IsNullOrEmpty(startFolder) && Directory.Exists(startFolder))

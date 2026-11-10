@@ -154,6 +154,7 @@ try {
   check(cut && Math.abs(cut.cutout.final.h - 0.8) < 1e-6 && Math.abs(cut.cutout.final.p[1]) < 0.05 && Math.abs(cut.cutout.final.r[1]) < 1e-9, 'in a Theatre scene: the engine\'s size (a prop 0.8 high), its foot on the floor (y = 0), facing the stage like the other flats');
   const cutPx = await p.eval(`return window.__preview.stage.screenPos(${JSON.stringify(cut?.id)})`);
   check(cutPx && Math.abs(cutPx[0] - 540) < 120 && cutPx[1] < 1450 && cutPx[1] > 1000, `it stands where it was dropped (its centre at ${cutPx?.join(', ')} px on the frame, dropped at 540, 1450)`);
+  fs.mkdirSync(path.join(STUDIO, '.cache', 'shots'), { recursive: true });
   await p.shot(path.join(STUDIO, '.cache', 'shots', 'cutout-3d.png'));
   { // the cardboard as the shot's camera sees it (no handles), and up close from the side (the edge, the back)
     const shot3 = await p.eval(`return await window.__preview.stage.snapshot()`);
@@ -195,12 +196,31 @@ try {
   check(meta.shots3d?.length === 1 && meta.shots3d[0].id === shot.id && meta.shots3d[0].fichier.endsWith('chibi1.mp4'), 'the Short knows its 3D shot (the shot says it is used there)');
   p = await launch({ port: await freePort(9379) });
   await p.goto(b.url + '/');
-  await p.until(`window.__studio && __studio.state().frame !== undefined`, 60000); await sleep(4000);
-  await p.eval(`document.querySelector('#v').currentTime = 2; return 1`); await sleep(1500);
-  const btn = await p.eval(`const b = document.querySelector('#open3d'); return { shown: getComputedStyle(b).display !== 'none', text: b.textContent }`);
-  await p.eval(`document.querySelector('#v').currentTime = 30; return 1`); await sleep(1500);
-  const after = await p.eval(`return getComputedStyle(document.querySelector('#open3d')).display`);
-  check(btn.shown && /Ouvrir la scène 3D · S12 · plan chibi 1/.test(btn.text) && after === 'none', `« ${btn.text} » on the chibi clip only`);
+  await p.until(`window.__studio && (__studio.state().mode === 'code' ? window.__preview?.durationInFrames > 1 : document.querySelector('#v').readyState >= 1)`, 180000);
+  await p.until(`(await (await fetch('/api/timeline')).json()).status === 'ready'`, 30000);
+  const { data: timeline } = await (await fetch(b.url + '/api/timeline')).json();
+  const clips = timeline.tracks.filter(track => track.type === 'video').flatMap(track => track.clips);
+  const clip = clips.find(c => path.basename(c.file ?? '') === 'chibi1.mp4');
+  if (!clip) throw new Error('Le média chibi1.mp4 est introuvable dans les pistes vidéo du Short');
+  const target = meta.shots3d.find(s => s.id === shot.id);
+  check(target && path.resolve(shortData.remotion.projet, target.fichier) === path.resolve(shortData.remotion.projet, clip.file),
+    `la piste vidéo et le plan 3D désignent le même fichier (${clip.file})`);
+  const from = Math.round(clip.t0 * timeline.fps), end = Math.round(clip.t1 * timeline.fps);
+  if (from >= end || end >= timeline.frames) throw new Error(`Le montage ne permet pas de tester la fin de ce clip : [${from}, ${end}[ sur ${timeline.frames}`);
+  const jump = async (frame) => {
+    await p.eval(`document.querySelector('#studioCommands').click(); return 1`);
+    await p.until(`document.activeElement.id === 'commandQuery'`);
+    await p.type('#' + frame);
+    await p.key('Enter', 'Enter', '\r');
+    await p.until(`!document.querySelector('#commandPalette').open && __studio.state().frame === ${frame}`, 30000);
+  };
+  const visible = `getComputedStyle(document.querySelector('#open3d')).display !== 'none'`;
+  await jump(end - 1);
+  await p.until(visible);
+  const label = await p.eval(`return document.querySelector('#open3d').textContent`);
+  await jump(end);
+  await p.until('!(' + visible + ')');
+  check(label.includes('Ouvrir la scène 3D · ' + target.title), `« ${label} » à l’image ${end - 1}, masqué dès la coupe à ${end}`);
 } catch (e) {
   check(false, `erreur : ${e.stack ?? e.message}`);
 } finally {

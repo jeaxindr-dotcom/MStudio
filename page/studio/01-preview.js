@@ -43,7 +43,7 @@
     get seeking() { return mode === 'code' ? false : v.seeking; },
     on(t, f) { bus.addEventListener(t, f); },
   };
-  ['play', 'pause', 'seeked'].forEach((t) => v.addEventListener(t, () => { if (mode === 'video' || !SP) fire(t); }));
+  ['play', 'pause', 'seeked', 'ended'].forEach((t) => v.addEventListener(t, () => { if (mode === 'video' || !SP) fire(t); }));
   // ---------- the review sound (lib/review-sound.mjs; user reports 24/10/2026: « le son fait que de se couper », « c'est
   // impossible de review la vidéo ») ----------
   // Un master externe explicitement configuré suit le Player. Le Player reste l'unique horloge :
@@ -178,6 +178,7 @@
         else if (!job.dropped && codeLoad === job && !SP) el.src = 'about:blank';
         if (!e.stale && !job.dropped && codeLoad === job) {
           codeFailedVer = ver;
+          if (!old) window.CoulissesReadiness?.failed({version:ver, frame:target, message:e.message});
           const message = `Version ${ver} non adoptée : ${e.message}. Cliquer « Code actuel » pour réessayer.`;
           showCodeNote(message); setSave(message, 'err');
         }
@@ -202,7 +203,11 @@
     sp.on((ev) => {
       if (SP !== sp) return;
       // (while moving, the preview's « loading » is not shown: the end of the move is watched by codeSettle)
-      if (ev.type === 'error' || ev.type === 'ready-error') { codeCrashed(plain(ev)); return; }
+      if (ev.type === 'error') { codeCrashed(plain(ev)); return; }
+      if (ev.type === 'ready-error') {
+        recordFrameFault(sp, ev.frame, ev.reason, ev.expired, ev.error?.message);
+        return;
+      }
       // (playing, the only « loading » is a wait for the scene's assets: player/assets-wait.tsx — said too)
       if (ev.type === 'loading' || ev.type === 'loaded') { codeWait(ev.type === 'loading' && !shuttle && performance.now() - lastStep > 250); return; }
       if (ev.type === 'waiting') { RS.wait = true; RS.el?.pause(); return; }
@@ -214,6 +219,7 @@
       if (ev.type === 'ended') fire('pause');
       if (RS.el && (ev.type === 'pause' || ev.type === 'ended')) RS.el.pause();
       if (rsOn() && (ev.type === 'play' || ev.type === 'seeked')) { rsAt(M.currentTime); rsPlay(); }
+      if (ev.type === 'ended') fire('ended');
     });
     // Une publication de code peut remplacer le Player entre le clic à l'arrêt
     // et Lecture. Le nouveau Player reprend alors la vérification demandée.
@@ -235,6 +241,73 @@
   // said, so that a loading state is never taken for a defect of the video (fiche du 10/10/2026, long04's junctions)
   const codeWaitEl = $('#codeWait');
   function codeWait(on) { codeWaitEl.classList.toggle('on', !!on && mode === 'code'); }
+  // Readiness for reviewing pixels is stricter than readiness for transport. An
+  // orphaned handle may release the playback veil without certifying the picture.
+  let frameFault = null;
+  function recordFrameFault(sp, frame, reason, expired, message) {
+    if (SP !== sp || mode !== 'code') return;
+    const previous = frameFault;
+    frameFault = {player:sp ? new WeakRef(sp) : null, frame, version:codeVer, state:expired ? 'expired' : 'error',
+      reason:reason || 'frame-preparation-failed', message:String(message || '').slice(0,500)};
+    codeWaitEl.classList.remove('pend','pend-key','on');
+    if (previous?.player?.deref() !== sp || previous?.frame !== frame || previous?.reason !== frameFault.reason) {
+      postJson('/api/preview-error',{frame,version:codeVer,message:frameFault.message || frameFault.reason,where:'préparation de l’image'}).catch(() => {});
+    }
+    updateReadinessNotice();
+  }
+  function previewNoteReadiness(frame, exact = true) {
+    if (mode !== 'code') return null;
+    if (preparedCode?.active()) {
+      const film = $('#codeRangeVideo');
+      if (film && !film.hidden && film.readyState >= 2 && !film.seeking && !film.error) return null;
+    }
+    const sp = SP, q = sp?.frameReadiness?.();
+    const sameFault = frameFault && (frameFault.player?.deref() ?? null) === sp && (frameFault.frame === frame || !sp);
+    if (sameFault && q?.verified && q.frame === frame) frameFault = null;
+    let state, reason;
+    if (crash && sp) {state = 'error'; reason = crash.kind || 'composition-error';}
+    else if (sameFault && !q?.verified) {state = frameFault.state; reason = frameFault.reason;}
+    else if (!sp || !q) {state = 'unverified'; reason = 'no-frame-confirmation';}
+    else if (!q.verified || sp.isBuffering?.()) {state = q.verified ? 'loading' : q.state; reason = q.reason || 'buffering';}
+    else if (exact && q.frame !== frame) {state = 'unverified'; reason = 'frame-not-confirmed';}
+    else return null;
+    return {state,reason,frame,observedFrame:q?.frame ?? null,version:q?.version ?? (codeVer >= 0 ? codeVer : frameFault?.version ?? null),
+      hash:q?.hash ?? null,staleLegacy:q?.staleLegacy || 0};
+  }
+  const readinessNotice = document.createElement('div'); readinessNotice.id = 'previewReadiness'; readinessNotice.hidden = true;
+  const readinessText = document.createElement('span'), readinessRetry = document.createElement('button');
+  readinessText.setAttribute('role','status'); readinessRetry.type = 'button'; readinessRetry.className = 'soft';
+  readinessRetry.textContent = FR ? 'Recharger l’aperçu' : 'Reload preview';
+  readinessRetry.onclick = () => { if (mode === 'code') hardReload(curFrame(),crash?.kind); };
+  readinessNotice.append(readinessText,readinessRetry); $('#stagewrap').before(readinessNotice);
+  function readinessLabel(reason) {
+    const messages = {
+      'unowned-render-handles':['chargement sans propriétaire','unowned render handle'],
+      'stale-unowned-render-handles':['attente de rendu orpheline','stale render handle'],
+      'resources':['ressources en chargement','assets loading'], 'webgl-context-lost':['contexte WebGL perdu','WebGL context lost'],
+      'webgl':['contexte WebGL perdu','WebGL context lost'], 'webgl-first-draw':['premier dessin 3D en attente','waiting for first 3D draw'],
+      'buffering':['mise en mémoire tampon','buffering'], 'video':['décodage vidéo','video decoding'],
+      'image':['image en chargement','image loading'], 'font':['police en chargement','font loading'],
+      'no-frame-confirmation':['confirmation du lecteur en attente','waiting for player confirmation'],
+      'frame-not-confirmed':['position en attente de confirmation','frame position unconfirmed'],
+    };
+    return messages[reason]?.[FR ? 0 : 1] || reason;
+  }
+  function updateReadinessNotice() {
+    const info = mode === 'code' && META ? previewNoteReadiness(curFrame(), !SP?.isPlaying?.()) : null;
+    readinessNotice.hidden = !info;
+    if (!info) return;
+    const label = (info.state === 'expired' ? (FR ? 'Préparation expirée' : 'Preparation timed out') : (FR ? 'Image non confirmée' : 'Frame unverified'))
+      + ' · ' + readinessLabel(info.reason) + (FR ? ' · les notes seront signalées.' : ' · notes will be flagged.');
+    if (readinessText.textContent !== label) readinessText.textContent = label;
+    readinessRetry.hidden = info.state === 'loading';
+  }
+  window.CoulissesReadiness = {failed: detail => {
+    frameFault = {player:null, frame:detail.frame, version:detail.version, state:/expir|timed? out|secondes/i.test(detail.message) ? 'expired' : 'error',
+      reason:/\(([-a-z0-9]+)\)/i.exec(detail.message)?.[1] || 'frame-preparation-failed'};
+    updateReadinessNotice();
+  }};
+  setInterval(() => { if (!document.hidden) updateReadinessNotice(); }, 400);
   // a step of the paused preview (← →, ↑ ↓, a click on the timeline): the veil is asked first — it shows after 90 ms
   // unless the frame is complete by then (the CSS delay runs on the compositor: even while the preview is busy mounting
   // the next chapter's page, 1.3 s for long04, the screen never shows the frame before with the new frame's number) —,
@@ -299,7 +372,9 @@
       const sp = SP, my = ++cwSeq;
       const veil = setTimeout(() => { if (my === cwSeq && mode === 'code') codeWaitEl.classList.add('on'); }, 90);
       const done = () => { clearTimeout(veil); if (my === cwSeq) codeWaitEl.classList.remove('on'); };
-      Promise.resolve(sp.whenFrameReady?.()).then(done, done);
+      Promise.resolve(sp.whenFrameReady?.()).then(done, e => {
+        done(); if (my === cwSeq && SP === sp && !aborted(e)) recordFrameFault(sp,curFrame(),sp.frameReadiness?.()?.reason,/expir|timed? out|sans réponse/i.test(e.message),e.message);
+      });
     }, 220);
   }
   function codeStep(f) {
@@ -311,7 +386,9 @@
       if (my !== cwSeq || SP !== sp) return;
       pendF = null; sp.seek(f);
       const done = () => { if (my === cwSeq) codeWaitEl.classList.remove('pend', 'pend-key'); };
-      Promise.resolve(sp.whenFrameReady?.()).then(done, done);
+      Promise.resolve(sp.whenFrameReady?.()).then(done, e => {
+        done(); if (my === cwSeq && SP === sp && !aborted(e)) recordFrameFault(sp,f,sp.frameReadiness?.()?.reason,/expir|timed? out|sans réponse/i.test(e.message),e.message);
+      });
     });
   }
   // « Rétablir le son » (the speaker under the image; user report 19/10/2026: « quand il y a des lags, le son se désactive,
@@ -452,12 +529,16 @@
   const stageWhy = () => (META?.features?.code ? null : T('st.why.stageNoCode'));
   const srcWhy = () => (!META?.features?.code ? T('st.why.srcNoCode') : !META?.render ? T('menu.why.noVideo') : null);
   function markTools() {
-    for (const [b, why] of [[$('#bStage'), stageWhy()], [$('#bSrc'), srcWhy()]]) {
+    for (const [b, why] of [[$('#bStage'), null], [$('#bSrc'), srcWhy()]]) {
       b.classList.toggle('off', !!why); b.setAttribute('aria-disabled', why ? 'true' : 'false');
       const w = b.querySelector('.tipr .why'); if (w) w.textContent = why ?? '';
     }
-    $('#srcVideo').classList.toggle('off', !META?.render); $('#srcVideo').title = META?.render ? '' : T('menu.why.noVideo');
-    $('#srcCode').classList.toggle('off', !META?.features?.code); $('#srcCode').title = META?.features?.code ? '' : T('st.why.srcNoCode');
+    const file = META?.render?.name, video = $('#srcVideo'), code = $('#srcCode');
+    if (file && !/\.mp4$/i.test(file)) video.lastChild.textContent = FR ? 'Vidéo importée' : 'Imported video';
+    video.classList.toggle('off', !file); video.setAttribute('aria-disabled', String(!file));
+    video.title = file || T('menu.why.noVideo');
+    code.classList.toggle('off', !META?.features?.code); code.setAttribute('aria-disabled', String(!META?.features?.code));
+    code.title = META?.features?.code ? (META.composition || T('st.src.code')) : T('st.why.srcNoCode');
   }
   $('#srcVideo').onclick = () => { if (!META?.render) return setSave(T('menu.why.noVideo'), 'err'); if (staging) setStaging(false); setMode('video'); };
   $('#srcCode').onclick = () => { if (!META?.features?.code) return setSave(T('st.why.srcNoCode'), 'err'); setMode('code'); };

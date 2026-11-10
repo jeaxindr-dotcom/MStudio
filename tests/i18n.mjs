@@ -147,6 +147,39 @@ try {
   p = await launch({ port: await freePort(9381) });
   const until = async (expr, ms = 30000) => { const t0 = Date.now(); for (;;) { try { if (await p.eval(`return !!(${expr})`)) return true; } catch { /* navigating */ } if (Date.now() - t0 > ms) throw new Error(`timeout: ${expr}`); await sleep(150); } };
   const ev = (e) => p.eval(e).catch(() => null);
+  const checkHome = async (lang) => {
+    const card = '.card[data-id="' + imp.id + '"]';
+    const dict = I.DICTS[lang];
+    const fr = lang === 'fr';
+    const labels = [
+      ['.app-head .sub', fr ? "Revue vidéo · annoter, envoyer à l'agent, corriger" : 'Video review · annotate, send to the agent, fix'],
+      ['.library-heading h1', fr ? 'Bibliothèque' : 'Library'],
+      ['#addSec h2', fr ? 'Ajouter un projet' : 'Add a project'],
+      ['#addSec .imp .t', fr ? 'Importer un projet' : 'Import a project'],
+      ['#newBtn', fr ? 'Nouveau projet…' : 'New project…'],
+      [card + ' button.open', fr ? 'Ouvrir le studio' : 'Open the studio'],
+      ['#impFolder', dict['hub.import.folder']], ['#impVideo', dict['hub.import.video']], ['#impPaste', dict['hub.import.paste']],
+    ];
+    await until(`document.documentElement.lang === '${lang}' && document.querySelector('#impPaste') && document.querySelector('${card}')`);
+    // Headings use uppercase via CSS. Read the visible label's source text, omitting decorative glyphs.
+    const actual = await p.eval(`return ${JSON.stringify(labels)}.map(([selector]) => {
+      const el = document.querySelector(selector);
+      if (!el?.checkVisibility() || el.disabled) return null;
+      const copy = el.cloneNode(true);
+      copy.querySelectorAll('[aria-hidden="true"]').forEach(child => child.remove());
+      return copy.textContent.trim();
+    })`);
+    const mismatches = labels.flatMap(([selector, expected], i) => actual[i] === expected ? [] : [selector + ' = ' + JSON.stringify(actual[i])]);
+    check(!mismatches.length, `home (${lang}): library heading, add/import actions, open studio${mismatches.length ? ' — ' + mismatches.join(', ') : ''}`);
+    const status = await p.eval(`const meta = document.querySelector('${card} .meta'); return meta?.checkVisibility() && meta.innerText`);
+    const expectedStatus = fr ? 'pas encore exporté · relecture du code' : 'not exported yet · code review';
+    check(typeof status === 'string' && status.includes(expectedStatus), `home (${lang}): the sample project's code-review status`);
+    await p.eval(`document.querySelector('#impPaste').click(); return true`);
+    const paste = await p.eval(`const input = document.querySelector('#impPath'), go = document.querySelector('#impGo');
+      return {focused: document.activeElement === input, placeholder: input.placeholder, submit: go.checkVisibility() && go.innerText};`);
+    check(paste.focused && paste.placeholder === dict['hub.import.placeholder'] && paste.submit === dict['hub.import.go'],
+      `home (${lang}): paste a path opens the localized import field and action`);
+  };
   // the visible text of the page: text nodes and the titles / placeholders, minus the user's own data
   const SCAN = `(() => {
     // the user's and the projects' own words: notes, replies, titles, paths, the export script's own labels
@@ -181,21 +214,20 @@ try {
   };
   await p.goto(`http://127.0.0.1:${HUB_PORT}/`);
   await until(`document.querySelectorAll('.card[data-id]').length >= 2`, 20000); await sleep(800);
-  const home = await ev(`return document.body.innerText`);
-  check(/Video review · annotate, send to the agent, fix/.test(home) && /Add a project/.test(home) && /Import a project/.test(home) && /Open the studio/.test(home) && /not exported yet · code review/.test(home),
-    'home screen: « Add a project », « Import a project », « Open the studio », the run « not exported yet · code review »');
+  await checkHome('en');
   check((await ev(`return document.documentElement.lang`)) === 'en' && (await ev(`return [...document.querySelectorAll('#menubar > button')].map((b) => b.textContent).join('|')`)) === 'File|Edit|Tools|Help', 'the page is lang="en", the menu bar « File · Edit · Tools · Help »');
   await scan('home screen');
   await menus('home screen');
   await p.shot(path.join(shots, 'i18n-1-home.png'));
   // the sample run's studio, from the home screen
-  await p.eval(`document.querySelector('.card[data-id="${imp.id}"]').click(); return 1`);
+  await p.eval(`document.querySelector('.card[data-id="${imp.id}"] button.open').click(); return 1`);
   await until(`location.port !== '${HUB_PORT}' && window.__studio && __studio.state().mode === 'code' && window.__preview?.durationInFrames > 1`, 120000);
   await until(`__studio.state().lanes.length >= 3`, 30000).catch(() => {}); await sleep(600);
   const studioUrl = await ev('return location.origin');
   await requireSandbox(studioUrl, RUN);
-  check(/live code/.test(await ev(`return document.querySelector('#kindTag').textContent`)) && (await ev(`return [...document.querySelectorAll('.tabbar button')].map((b) => [...b.childNodes].find((n) => n.nodeType === 3)?.textContent).join('|')`)) === 'Agent|Edits|Batches|Media|Notes|Scene|Inspector',
-    'studio: the tabs « Agent · Edits · Batches » (left) and « Media · Notes · Scene · Inspector » (right), the tag « · live code »');
+  const tabNames = await ev(`return [...document.querySelectorAll('.tabbar button[data-tab]')].map(b => { const label = b.cloneNode(true); label.querySelector('.n')?.remove(); return label.textContent.trim(); }).join('|')`);
+  check(/live code/.test(await ev(`return document.querySelector('#kindTag').textContent`)) && tabNames === 'Agent|Edits|Batches|Layers|Media|Notes|Scene|Inspector',
+    'studio: the layers, media, notes, scene, inspector and agent tabs are named in English');
   // a pin on the title of plan s02 (frame 150), named by data-coulisses, sent as a batch
   await p.eval(`window.__preview.seek(150); return 1`); await sleep(900);
   const r = await ev(`const r = document.querySelector('#media').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]`);
@@ -286,11 +318,12 @@ try {
   for (let i = 0; i < 60 && !/HUB_READY/.test(hubOut); i++) await sleep(250);
   HUB_PORT = hubPort(hubOut);
   await p.goto(`http://127.0.0.1:${HUB_PORT}/`); await until(`document.querySelector('#langs button.on')`, 10000);
-  check((await ev(`return document.querySelector('#langs button.on').dataset.l`)) === 'en' && /Add a project/.test(await ev(`return document.body.innerText`)), 'with « en » in the settings file: the home screen in English, « EN » lit');
+  await checkHome('en');
+  check((await ev(`return document.querySelector('#langs button.on').dataset.l`)) === 'en', 'with « en » in the settings file: the English language button is active');
   await p.eval(`document.querySelector('#langs button[data-l=fr]').click(); return 1`);
-  await until(`document.documentElement.lang === 'fr' && /Ajouter un projet/.test(document.body.innerText)`, 15000).catch(() => {});
+  await checkHome('fr');
   const saved = JSON.parse(fs.readFileSync(process.env.COULISSES_SETTINGS, 'utf8'));
-  check(saved.lang === 'fr' && saved.other === 1 && (await ev(`return document.documentElement.lang`)) === 'fr' && /Ajouter un projet/.test(await ev(`return document.body.innerText`)), '« FR »: the page comes back in French, the choice kept in the settings file (the other settings kept)');
+  check(saved.lang === 'fr' && saved.other === 1 && (await ev(`return document.querySelector('#langs button.on').dataset.l`)) === 'fr', '« FR »: the French language button is active and the choice is saved alongside other settings');
   check((await ev(`return [...document.querySelectorAll('#menubar > button')].map((b) => b.textContent).join('|')`)) === 'Fichier|Édition|Outils|Aide', '… the menu bar too: « Fichier · Édition · Outils · Aide »');
   void studioUrl;
 } catch (e) { ko++; console.log('  ✗ ERREUR', e.stack); } finally {

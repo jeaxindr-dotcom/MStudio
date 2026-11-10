@@ -146,6 +146,10 @@
     if (end !== null && end < frame) [frame, end] = [end, frame];
     if (end !== null && end === frame) end = null;
     const n = { id: uid(), frame, end, text: '', images: [], thread: [], status: 'open', created: now(), render: META.render, draft: true, source: mode, ...extra };
+    if (n.source === 'code' && n.kind !== 'prompt') {
+      const evidence = n.previewReadiness || previewNoteReadiness(curFrame());
+      if (evidence) n.previewReadiness = evidence; else delete n.previewReadiness;
+    }
     stamp(n); anchorNote(n); notes.push(n); sel = n.id; save(); setTab('queue'); renderAll();
     if (focus) requestAnimationFrame(() => { const ta = document.querySelector(`.card[data-id="${n.id}"] textarea.main`); if (ta) { ta.focus(); ta.scrollIntoView({ block: 'nearest' }); } });
     return n;
@@ -158,7 +162,7 @@
   }
   function showCard(id) {
     const n = byId(id); if (!n) return;
-    if (n.draft) setTab('queue'); else if (!onTab('insp')) setTab('notes');   // the queue on the left, the notes on the right (unless the inspector is shown)
+    if (n.draft) setTab('queue'); else setTab(onTab('insp') ? 'insp' : 'notes');
     requestAnimationFrame(() => document.querySelector(`.card[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   }
 
@@ -312,6 +316,34 @@
     return out.map((n) => ({ status: 'open', end: null, images: [], thread: [], ...n }));
   }
   let NOTES_LAST_SAVE = Date.now();
+  // A history entry belongs to this tab. Carry remote additions, deletions and
+  // changed fields through every snapshot so Undo cannot undo someone else's save.
+  function rebaseNoteHistory(before, after) {
+    const local = new Map(before.map(n => [n.id, n]));
+    const merged = new Map(after.map(n => [n.id, n]));
+    const changed = [];
+    for (const n of after) {
+      const prior = local.get(n.id);
+      const keys = [...new Set([...Object.keys(prior || {}), ...Object.keys(n)])]
+        .filter(k => JSON.stringify(prior?.[k]) !== JSON.stringify(n[k]));
+      if (!prior || keys.length) changed.push({n, prior, keys});
+    }
+    const removed = before.filter(n => !merged.has(n.id));
+    for (const entry of [...HIST.back, ...HIST.fwd]) {
+      if (entry.type !== 'notes') continue;
+      const snapshot = new Map(JSON.parse(entry.state).map(n => [n.id, n]));
+      for (const n of removed) snapshot.delete(n.id);
+      for (const {n, prior, keys} of changed) {
+        const old = snapshot.get(n.id);
+        if (!prior || !old) { snapshot.set(n.id, n); continue; }
+        for (const k of keys) {
+          if (Object.hasOwn(n, k)) old[k] = n[k]; else delete old[k];
+        }
+      }
+      entry.state = JSON.stringify([...snapshot.values()]);
+    }
+    HIST.lastAt = 0;
+  }
   // Ctrl+Z / Ctrl+Y (user request, 08/10/2026: « les raccourcis habituels »): the user's own actions in the page — a note
   // added, deleted, moved or written, a mark, an edit in the queue, a staging offset — 60 steps back, kept in memory. The
   // words typed in a field keep the browser's own undo while it has the focus, and typing in a note makes one step per
@@ -385,7 +417,9 @@
         const r = await fetch('/api/notes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: payload() });
         if (r.status === 409 && tries < 3) {   // another tab saved since: its notes and these, merged, then saved again
           const cur = (await r.json()).current;
-          notes = mergeNotes(notes, cur?.notes ?? []); NOTES_REV = cur?.rev; HIST.last = JSON.stringify(notes); renderAll();
+          const merged = mergeNotes(notes, cur?.notes ?? []);
+          rebaseNoteHistory(notes, merged);
+          notes = merged; NOTES_REV = cur?.rev; HIST.last = JSON.stringify(notes); renderAll();
           continue;
         }
         if (!r.ok) throw new Error(await r.text());
@@ -557,7 +591,10 @@
   async function loadLive() {
     try {
       const r = await (await fetch('/api/timeline', { cache: 'no-store' })).json();
-      if (r.status === 'ready' && r.data) { LIVE = r.data; liveVer = r.version; buildLanes(); draw(); renderInspector(); }
+      if (r.status === 'ready' && r.data) {
+        LIVE = r.data; liveVer = r.version;
+        buildLanes(); draw(); renderInspector(); showShot();
+      }
     } catch { /* retried with the next status */ }
   }
 

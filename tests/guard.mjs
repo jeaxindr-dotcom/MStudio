@@ -57,6 +57,9 @@ try {
   const evil = await ask(port, '/api/notes', { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' }, 'POST');
   check(evil.code === 403 && /refused/.test(evil.body), 'another site\'s page (Origin https://evil.example): refused (403)');
   check((await ask(port, '/api/meta', { host: `evil.example:${port}` })).code === 403, 'a DNS-rebinding name (Host evil.example): refused');
+  // The listening socket is ready before the first Remotion bundle. Until it
+  // exists even an ordinary localhost request for player.html returns 410.
+  if (!await until(async () => (await ask(port, '/player.html')).code === 200)) throw new Error('The sandbox preview did not build');
   check((await ask(port, '/player.html', { host: `pmhd3k2x.localhost:${port}` })).code === 200, 'the name of the replacement of a frozen preview (Host p….localhost, 31/10/2026): allowed');
   check((await ask(port, '/api/meta', { host: `evil.localhost.example:${port}` })).code === 403 && (await ask(port, '/api/meta', { host: `evil-site.localhost:${port}` })).code === 403, 'any other *.localhost-like name: refused');
   check((await ask(port, '/api/meta', { 'sec-fetch-site': 'cross-site' })).code === 403, 'an <img> or a link of another site (cross-site, no Coulisses page behind): refused');

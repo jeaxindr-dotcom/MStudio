@@ -134,7 +134,9 @@ try {
   check(u && !u.off && u.k === 'Ctrl+Z' && /^Annuler /.test(u.l) && lot?.off && rows.some((r) => r.id === 'redo' && r.k === 'Ctrl+Y'), `Édition: « ${u?.l} » ${u?.k}, « Rétablir » Ctrl+Y, then the agent's fixes (« ${lot?.l} »)`);
   // a staging offset: undone, redone
   await p.eval(`window.__preview.seek(45); return 1`); await sleep(800);
-  await key('m'); await p.until(`__studio.state().staging`, 20000); await sleep(400);
+  await key('m'); await p.until("document.querySelector('#sceneRequestKeep')", 20000);
+  await p.eval("document.querySelector('#sceneRequestKeep').click()");
+  await p.until(`__studio.state().staging`, 20000); await sleep(400);
   await p.eval(`window.__preview.stage.select('[data-coulisses="titre s01"]'); return 1`); await sleep(300);
   for (let i = 0; i < 3; i++) { await p.frameEval('player.html', `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); return 1`); await sleep(50); }
   const dx = () => p.eval(`return window.__preview.stage.info('[data-coulisses="titre s01"]').delta.p[0]`);

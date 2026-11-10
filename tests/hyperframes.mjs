@@ -17,7 +17,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { launch } from './cdp.mjs';
+import { launch, requireSandbox } from './cdp.mjs';
+import { freePort } from './where.mjs';
 
 const STUDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { hfInstalls } = await import('../lib/hyperframes.mjs');
@@ -33,7 +34,7 @@ const FAKE = path.join(SCR, 'fake-update.mjs'), FAKE_LOG = path.join(SCR, 'fake-
 fs.writeFileSync(FAKE, `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(FAKE_LOG)}, process.argv.slice(2).join(' ')); console.log('updated');\n`);
 process.env.COULISSES_UPDATE_CMD = FAKE;
 fs.writeFileSync(process.env.COULISSES_SETTINGS, JSON.stringify({ mediasAutoSort: false }));
-const PORT = 4202, H = `http://127.0.0.1:${PORT}`, CLI = path.join(STUDIO, 'studio-cli.mjs');
+const PORT = await freePort(4202), H = `http://127.0.0.1:${PORT}`, CLI = path.join(STUDIO, 'studio-cli.mjs');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));
 let ok = 0, ko = 0;
 const check = (c, w) => { c ? ok++ : ko++; console.log(`  ${c ? '✓' : '✗'} ${w}`); };
@@ -50,6 +51,7 @@ try {
   hub = spawn(process.execPath, [path.join(STUDIO, 'hub-server.mjs'), '--port', String(PORT)], { cwd: STUDIO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; hub.stdout.on('data', (d) => { out += d; }); hub.stderr.on('data', (d) => { out += d; });
   for (let i = 0; i < 80 && !/HUB_READY/.test(out); i++) await sleep(250);
+  if (!/HUB_READY/.test(out)) throw new Error('Le hub de test n’a pas démarré : ' + out.slice(-400));
 
   // ---------- 1. « Nouveau projet » › HyperFrames ----------
   console.log('nouveau projet HyperFrames');
@@ -68,7 +70,7 @@ try {
   console.log("l'accueil");
   const list = await get('/api/episodes'), hp = list.projects.find((x) => x.id === r.id), rp = list.projects.find((x) => x.id === rem.id);
   check(hp?.engine === 'hyperframes' && hp.kind === 'hyperframes' && rp?.engine === 'remotion', 'the list knows the engine of each project');
-  p = await launch({ port: 9462 });
+  p = await launch({ port: await freePort(9462) });
   await p.goto(H + '/');
   await p.until(`document.querySelector('.card[data-id="${r.id}"] .eng')`, 30000);
   const tags = await p.eval(`const t = (id) => document.querySelector('.card[data-id="' + id + '"] .eng')?.textContent ?? ''; return [t(${JSON.stringify(r.id)}), t(${JSON.stringify(rem.id)})]`);
@@ -88,6 +90,7 @@ try {
   await p.until(`location.port !== '${PORT}' && window.__studio && window.__preview?.ok`, 120000);
   await sleep(2500);
   const U = await p.eval(`return location.origin`);
+  await requireSandbox(U, SCR);
   const m = await get('/api/meta', U);
   check(m.kind === 'hyperframes' && m.engine === 'hyperframes' && m.features.code && m.features.export && m.size.join('x') === '1920x1080' && m.fps === 30, `the studio: HyperFrames ${m.hfVersion}, 1920×1080 at 30 fps, live code, export`);
   const sp = `window.__preview`;
@@ -103,10 +106,34 @@ try {
   check(f2 > 60, `play: the frame runs (${f2})`);
   const tl = await get('/api/timeline', U);
   check(tl.status === 'ready' && tl.data.tracks.some((t) => t.clips.some((x) => x.label === 'title' && x.t0 === 0 && Math.abs(x.t1 - 4) < 0.05)), `the timeline from « hyperframes timeline »: ${tl.data?.tracks?.map((t) => t.name).join(' · ')}`);
-  // the 2D staging on the composition
-  await p.key('m', 'KeyM', 'm'); await p.until(`__studio.state().staging`, 30000); await sleep(600);
-  await p.eval(`${sp}.stage.select('#title') ?? 1; return 1`).catch(() => {});
-  check(await p.eval(`return ${sp}.stage.kind`) === '2d', 'M: the 2D staging, as in a Remotion run');
+  // A flat HTML composition can keep its own editable stage or request a Remotion version.
+  await p.key('m', 'KeyM', 'm');
+  await p.until(`document.querySelector('#sceneRequestKeep') && document.querySelector('#sceneRequestSend')`, 30000);
+  check(await p.eval(`return !__studio.state().staging && /composition Remotion/.test(document.querySelector('#scene').innerText) && /HyperFrames original/.test(document.querySelector('#scene').innerText)`),
+    'HTML plat : la proposition nomme la nouvelle composition Remotion et conserve l’original HyperFrames');
+  await p.eval(`document.querySelector('#sceneRequestKeep').click(); return 1`);
+  await p.until(`__studio.state().staging && ${sp}.stage.kind === '2d'`, 30000);
+  const activeFrame = await p.eval(`return document.querySelector('#code').src`);
+  const origin = await p.eval(`const rect = document.querySelector('#code').getBoundingClientRect(); return [rect.left, rect.top]`);
+  const title = await p.frameEval(activeFrame, `const rect = document.querySelector('#title').getBoundingClientRect(); return [rect.left + rect.width / 2, rect.top + rect.height / 2]`);
+  await p.mouse('mousePressed', origin[0] + title[0], origin[1] + title[1]);
+  await p.mouse('mouseReleased', origin[0] + title[0], origin[1] + title[1]);
+  await p.until(`!!__studio.state().stage`, 5000);
+  // The bridge publishes the selected delta before the next paint of the isolated Player.
+  // Measure the title in composition pixels so the viewer's fit/layout scale cannot change the oracle.
+  const titleX = `const fit = document.querySelector('#coulisses-fit'), bounds = fit.getBoundingClientRect();
+    return (document.querySelector('#title').getBoundingClientRect().left - bounds.left) * fit.offsetWidth / bounds.width`;
+  const before = await p.frameEval(activeFrame, titleX);
+  await p.key('ArrowRight', 'ArrowRight');
+  await p.until(`${sp}.stage.info(__studio.state().stage).delta.p[0] === 1`, 5000);
+  let dx = 0;
+  for (let i = 0; i < 60 && Math.abs(dx - 1) > 0.08; i++) {
+    await sleep(50);
+    dx = (await p.frameEval(activeFrame, titleX)) - before;
+  }
+  const lotsAfterDecline = (await get('/api/status', U)).lots.length;
+  check(lotsAfterDecline === 0 && Math.abs(dx - 1) <= 0.08,
+    `Rester en 2D déplace le titre dans le lecteur HTML (Δx ${dx.toFixed(3)} px) et conserve ${lotsAfterDecline} lot`);
   await p.key('m', 'KeyM', 'm'); await sleep(400);
   // a note, sent: the batch is a HyperFrames one
   await p.eval(`document.querySelector('#ltabs button[data-tab=queue]').click(); return 1`);

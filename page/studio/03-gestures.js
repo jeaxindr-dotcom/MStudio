@@ -45,14 +45,19 @@
     }
     g.restore();
   }
+  let overlayHadMarks = true;
   function drawOv() {
     // drawn in the image's own size (it zooms with it), sharp up to ×3 of zoom
     const lw = ov.clientWidth, lh = ov.clientHeight, q = (window.devicePixelRatio || 1) * Math.min(3, VZ.k);
     if (!lw) return;
     if (ov.width !== Math.round(lw * q) || ov.height !== Math.round(lh * q)) { ov.width = Math.round(lw * q); ov.height = Math.round(lh * q); }
+    const marks = visibleNotes();
+    const hasMarks = !!(marks.length || drawing || stroke || pickPt);
+    if (!hasMarks && !overlayHadMarks) return;
+    overlayHadMarks = hasMarks;
     const g = ov.getContext('2d'); g.setTransform(q, 0, 0, q, 0, 0); g.clearRect(0, 0, lw, lh);
     const k = lw / CW, num = new Map(reviewed().map((n, i) => [n.id, i + 1]));
-    for (const n of visibleNotes()) {   // the colour of its state (02-notes.js stateOf), a validated one faded
+    for (const n of marks) {   // the colour of its state (02-notes.js stateOf), a validated one faded
       const isSel = n.id === sel;
       paintMark(g, n.mark, String(num.get(n.id)), k, stateColor(n), stateOf(n) === 'ok' && !isSel, CW * k, isSel);
     }
@@ -113,7 +118,8 @@
     if (tool === 'select') {
       const n = markHit(pt);
       if (n) { sel = n.id; pickPt = null; $('#pickBtn').style.display = 'none'; renderAll(); showCard(n.id); return; }
-      M.pause(); pickPt = { pt, frame: curFrame() };
+      const frame = curFrame(), evidence = previewNoteReadiness(frame);
+      M.pause(); pickPt = { pt, frame, evidence, source:mode };
       const b = $('#pickBtn'); b.style.display = 'inline-flex'; placeBeside(b, pt);
       drawOv(); return;
     }
@@ -122,7 +128,7 @@
       if (queueFull()) return;
       M.pause(); ov.setPointerCapture(e.pointerId);
       if (drawing && drawing.frame !== curFrame()) { drawing = null; closePop(); }
-      stroke = [pt]; drawOv();
+      stroke = [pt]; stroke.evidence = previewNoteReadiness(curFrame()); stroke.source = mode; drawOv();
     }
   });
   ov.addEventListener('pointermove', (e) => {
@@ -134,9 +140,10 @@
     if (!stroke) return;
     const s = stroke; stroke = null;
     if (s.length < 4) { drawOv(); return; }
-    drawing ??= { frame: curFrame(), strokes: [] };
+    drawing ??= { frame: curFrame(), strokes: [], evidence:s.evidence, source:s.source };
     if (drawing.strokes.length < 200) drawing.strokes.push(thin(s, 32));
-    openPop({ kind: 'circle', strokes: drawing.strokes }, drawing.frame);
+    drawing.evidence ||= s.evidence;
+    openPop({ kind: 'circle', strokes: drawing.strokes }, drawing.frame, drawing.evidence, drawing.source);
   });
   // (a touch taken back by the system — a palm on the iPad, a gesture of iPadOS: not a stroke)
   ov.addEventListener('pointercancel', () => { if (stroke) { stroke = null; drawOv(); } });
@@ -144,13 +151,14 @@
   window.__studio = { state: () => ({ staging, stage: stSel?.id ?? null, tool, mode, tab, tabL, tabR, vzoom, vz: { ...VZ }, drawing, popFor: popFor && { frame: popFor.frame, kind: popFor.mark.kind }, stroke: stroke?.length ?? null, drafts: drafts().length, frame: curFrame(), lanes: lanes.map((l) => l.name), view: { ...view }, vscroll,
     video: META?.render?.size ?? null, held: wasHeld, proj: PROJ, size: [CW, CH], cmp: cmpOpen() ? { i: cmpI, n: CMP.length, x: cmpX } : null, renderView: STATUS.lots ? renderView().st : null,
     plans: { ...(STATUS.plans ?? {}) }, lotf: LOTF, tl: shapes.map((s) => s.id), tlX: Object.fromEntries(shapes.map((s) => [s.id, s.kind === 'point' ? s.x : (s.x0 + s.x1) / 2])) }) };   // for tests (the batch shown, the notes on the timeline)
-  function promptAtPick() { if (!pickPt) return; $('#pickBtn').style.display = 'none'; openPop({ kind: 'pin', points: [pickPt.pt] }, pickPt.frame); }
+  function promptAtPick() { if (!pickPt) return; $('#pickBtn').style.display = 'none'; openPop({ kind: 'pin', points: [pickPt.pt] }, pickPt.frame, pickPt.evidence, pickPt.source); }
 
   // ---------- the « what should change here? » box ----------
   let pickJob = 0;
-  function openPop(mark, frame) {
+  function openPop(mark, frame, evidence = null, source = mode) {
     const keep = popFor ? $('#popTx').value : '';
-    popFor = { mark, frame, target: popFor?.frame === frame ? popFor.target : null };
+    popFor = { mark, frame, target: popFor?.frame === frame ? popFor.target : null, source,
+      evidence:evidence || (popFor?.frame === frame && popFor.evidence) || previewNoteReadiness(frame) };
     const pop = $('#pop'), all = mark.kind === 'pin' ? mark.points : mark.strokes.flat(), v = visBox();   // the part of the image on screen
     const [x0, y0] = toPx([Math.min(...all.map((p) => p[0])) - 30, Math.min(...all.map((p) => p[1])) - 30]);
     const [x1, y1] = toPx([Math.max(...all.map((p) => p[0])) + 30, Math.max(...all.map((p) => p[1])) + 30]);
@@ -202,7 +210,7 @@
     const { mark, frame, target } = popFor, text = $('#popTx').value.trim();
     const stored = mark.kind === 'pin' ? { kind: 'pin', points: [mark.points[0]] }
       : { kind: 'circle', points: thin(mark.strokes.flat(), 64), strokes: mark.strokes };
-    const n = addNote(frame, null, false, { text, mark: stored, target });
+    const n = addNote(frame, null, false, { text, mark: stored, target, source:popFor.source, ...(popFor.evidence ? {previewReadiness:popFor.evidence} : {}) });
     closePop();
     if (n) { setSave(T('st.pop.added'), 'ok'); showCard(n.id); }
   }

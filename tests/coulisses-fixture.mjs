@@ -110,7 +110,7 @@ export const Root: React.FC = () => (
     "import { bundle } from '@remotion/bundler';",
     "import { selectComposition, renderMedia } from '@remotion/renderer';",
     "const a = process.argv.slice(2), opt = (k) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : null; };",
-    "if (a.includes('--options')) { console.log(JSON.stringify([{ id: 'final', label: 'Exporter la vidéo' }, { id: 'test', label: 'Rendu test (30 images)' }, { id: 'remplace', label: 'Remplacer (même nom)' }])); process.exit(0); }",
+    "if (a.includes('--options')) { console.log(JSON.stringify([{ id: 'final', resolution:'1080p', label: 'Exporter la vidéo' }, { id: 'test', label: 'Rendu test (30 images)' }, { id: 'remplace', label: 'Remplacer (même nom)' }])); process.exit(0); }",
     "const q = opt('--qualite'), id = opt('--composition'), dossier = opt('--dossier'), images = q === 'test' || q === 'remplace' ? '30' : opt('--images');",
     "const props = opt('--props') ? JSON.parse(fs.readFileSync(opt('--props'), 'utf8')) : {};",
     "if (!id || !dossier) { console.error('usage : --composition <id> --dossier <dossier> [--props f] [--titre t] [--images N]'); process.exit(2); }",

@@ -81,7 +81,7 @@ try {
   check(await ev(`const d = document.querySelector('.mb-dlg.sc-dlg'); return !!d && d.querySelectorAll('.sc-row').length > 20`), '↓ Enter: Aide › Raccourcis clavier, on the home screen too');
   await escape(); await p.key('F10', 'F10'); await p.key('ArrowLeft', 'ArrowLeft'); await sleep(80);
   await p.key('ArrowDown', 'ArrowDown'); await sleep(80); await p.key('ArrowDown', 'ArrowDown'); await sleep(80); await p.key('Enter', 'Enter'); await sleep(600);
-  check(/# Coulisses : protocole de l'agent/.test(await ev(`return document.querySelector('.mb-dlg .body')?.textContent ?? ''`)), '↓ ↓ Enter: Aide › Protocole de l\'agent (the separator skipped), in French (AGENT.md)');
+  check(/# MStudio : protocole de l'agent/.test(await ev(`return document.querySelector('.mb-dlg .body')?.textContent ?? ''`)), '↓ ↓ Enter: Aide › Protocole de l\'agent (the separator skipped), in French (AGENT.md)');
   await escape(); check(!(await ev(`return document.querySelector('.mb-dlg')`)), 'Escape closes the window');
   await run('tools', 'log'); await sleep(150);
   check((await rows(1))?.[0]?.label === 'Journal de l\'accueil', 'Outils › Journal ▸ « Journal de l\'accueil »');
@@ -91,7 +91,7 @@ try {
   await run('file', 'pastePath');
   check(await ev(`return document.querySelector('.imp').classList.contains('pasting') && document.activeElement?.id === 'impPath'`), 'Fichier › Coller un chemin…: the path field, focused');
   await run('help', 'about');
-  check(/MIT/.test(await ev(`return document.querySelector('.mb-dlg').innerText`)) && /github\.com\/jeaxindr-dotcom\/coulisses/.test(await ev(`return document.querySelector('.mb-dlg').innerText`)), 'Aide › À propos de Coulisses: the version, MIT, the GitHub link');
+  check(/MIT/.test(await ev(`return document.querySelector('.mb-dlg').innerText`)) && /github\.com\/jeaxindr-dotcom\/MStudio/.test(await ev(`return document.querySelector('.mb-dlg').innerText`)), 'Aide › À propos de Coulisses: the version, MIT, the GitHub link');
   await p.shot(path.join(shots, 'menu-1-about.png'));
   await escape();
   // Édition › Préférences… : the language, kept in the (test) settings file
@@ -139,7 +139,7 @@ try {
   check(/PROJET CONFORME : Coulisses peut l'ouvrir/.test(await ev(`return document.querySelector('.mb-dlg .body').textContent`)), 'Outils › Vérifier le projet: « PROJET CONFORME : Coulisses peut l\'ouvrir… »');
   await escape();
   await run('help', 'contract');
-  check(/# Fiche : passer un pipeline vidéo sous Remotion/.test(await ev(`return document.querySelector('.mb-dlg .body')?.textContent ?? ''`)), 'Aide › Contrat des pipelines: the French fiche');
+  check(/# Intégrer un projet Remotion dans MStudio/.test(await ev(`return document.querySelector('.mb-dlg .body')?.textContent ?? ''`)), 'Aide › Contrat des pipelines : le guide MStudio en français');
   await escape();
   // the page's own shortcuts wait while the bar has the keyboard
   const f0 = await ev(`return __studio.state().frame`);

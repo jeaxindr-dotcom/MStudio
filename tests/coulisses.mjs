@@ -10,10 +10,11 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { launch } from './cdp.mjs';
 import { makeFixture, RUN, PROJET } from './coulisses-fixture.mjs';
+import { freePort } from './where.mjs';
 
 process.env.COULISSES_LANG = 'fr';   // the suite checks the French texts (lib/i18n.mjs)
 const STUDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const HUB_PORT = 4188, CLI = path.join(STUDIO, 'studio-cli.mjs'), shots = path.join(STUDIO, '.cache', 'shots'), REG = path.join(STUDIO, '.cache', 'coulisses-test-projets.json');
+const HUB_PORT = await freePort(4288), CLI = path.join(STUDIO, 'studio-cli.mjs'), shots = path.join(STUDIO, '.cache', 'shots'), REG = path.join(STUDIO, '.cache', 'coulisses-test-projets.json');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+(process.env.COULISSES_TEST_SLOW ?? 1) || 1)));   // COULISSES_TEST_SLOW=2: a slower PC
 let ok = 0, ko = 0;
 const check = (c, w) => { c ? ok++ : ko++; console.log(`  ${c ? '✓' : '✗'} ${w}`); };
@@ -30,7 +31,7 @@ let hubOut = ''; hub.stdout.on('data', (d) => { hubOut += d; }); hub.stderr.on('
 const H = `http://127.0.0.1:${HUB_PORT}`;
 const post = async (u, b) => (await fetch(H + u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b ?? {}) })).json();
 for (let i = 0; i < 60 && !/HUB_READY/.test(hubOut); i++) await sleep(250);
-const p = await launch({ port: 9349 });
+const p = await launch({ port: await freePort(9349) });
 const until = async (expr, ms = 30000) => { const t0 = Date.now(); for (;;) { try { if (await p.eval(`return !!(${expr})`)) return true; } catch { /* navigating */ } if (Date.now() - t0 > ms) throw new Error(`timeout: ${expr}`); await sleep(150); } };
 const ev = (e) => p.eval(e).catch(() => null);
 try {
@@ -70,7 +71,14 @@ try {
   const REVUE = path.join(RUN, 'revue'), md = fs.readFileSync(path.join(REVUE, 'lots', '001.md'), 'utf8');
   check(/composition ESSAI-2026-10-07/.test(md) && /relit le CODE en direct/.test(md) && /aperçu vivant du CODE/.test(md), 'the request: the composition, reviewed from the code');
   check(/Objet 3D sous le geste : |titre s02/.test(md) && /Plans : plan s02 · Trois chiffres · src\/Video\.tsx, image 60 du clip/.test(md), 'it names the element and the clip (src/Video.tsx, image 60 of the clip)');
-  check(fs.existsSync(path.join(REVUE, 'lots', '001', '1-image.jpg')), 'its image comes from the code (no MP4)');
+  // Sending publishes the receipt first. Wait for the same delivery the agent gets.
+  const images = cli('images', REVUE, '1', '--timeout', '120');
+  const lot = JSON.parse(fs.readFileSync(path.join(REVUE, 'lots', '001.json'), 'utf8'));
+  const edit = lot.edits[0], image = edit.captures.image;
+  // Plan s02 paints #14532d in this corner. Read pixels from the published JPEG.
+  const rgb = execFileSync('ffmpeg', ['-v', 'error', '-i', image, '-vf', 'crop=2:2:20:20', '-frames:v', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1']);
+  check(lot.captureState.status === 'ready' && images.includes(image) && edit.source === 'code' && edit.frame === 150
+    && [20, 83, 45].every((v, i) => Math.abs(rgb[i] - v) <= 5), 'its delivered image shows the code at frame 150 (no MP4)');
   await p.eval(`document.querySelector('#mClose').click(); return 1`);
   // 4) the agent: the code's frame
   const fr = cli('frame', REVUE, '150');

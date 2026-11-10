@@ -3,10 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Coulisses</title>
+<title>{{common.productName}}</title>
 <link rel="icon" href="/favicon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- Coulisses (formerly « Brambleshire Studio ») — home screen of the app: the episodes and the imported projects, open one in the review studio
      (same « glass » design). « Importer un projet… » works like DaVinci Resolve's Project Manager: a folder (an AItelier
      run, a folder of videos) or a video file joins the list; removing it from the list deletes nothing. -->
@@ -158,35 +156,111 @@
   .np .row2 { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
   .np .row2 .grow { flex: 1; }
   .np .why { color: var(--coral); font-size: 12.5px; }
+  body { background:#11151b; color:#e9eeee; --lime:#83e5c2; --s11:#b1bec4; --s9:#99a6ae; --stroke:#303942; --stroke-2:#414d54; --grad-lime:#83e5c2; }
+  header,main,footer { max-width:1700px; margin-inline:auto; }
+  header { padding:24px clamp(16px,3vw,46px) 18px; }
+  main { padding:12px clamp(16px,3vw,46px) 42px; }
+  .logo { color:var(--lime); width:38px; height:38px; background:#1a2927; border:1px solid #38544c; border-radius:8px; box-shadow:none; }
+  .grid { grid-template-columns: repeat(auto-fill,minmax(min(290px,100%),1fr)); gap:12px; }
+  .card { border-radius:8px; box-shadow:none; background:#1b2128; border-color:var(--stroke); }
+  .card:hover { transform:none; box-shadow:none; border-color:#5d8278; }
+  .thumb { background-color:#11171d; }
+  .thumb.no-image { background:repeating-linear-gradient(128deg,#273c42 0 2px, transparent 2px 30px),linear-gradient(130deg,#182127,#25383b 58%,#1c282e); }
+  .body { padding:12px; } .title { font:600 16px/1.4 var(--font); }
+  .row { gap:5px; margin-top:12px; } .id,.kind,.chip,.live { border-radius:4px; }
+  button, .card .more, .card .fold, .card .open, .fh .fbtn { border-radius:5px; box-shadow:none; height:32px; padding:0 10px; font:600 12px var(--font); }
+  button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid #83e5c2; outline-offset:2px; }
+  .topbar { flex-wrap:wrap; } .topbar h2 { color:#eef3f1; font:600 21px var(--font); }
+  .lib-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px 0; margin:5px 3px 0; border-block:1px solid var(--stroke); }
+  .lib-controls input,.lib-controls select { box-sizing:border-box; height:34px; min-width:0; color:#e7efed; background:#1b2228; border:1px solid var(--stroke-2); border-radius:5px; padding:0 9px; font:12px var(--font); }
+  .lib-controls input { flex:1; max-width:450px; min-width:min(220px,100%); }
+  .lib-controls button { color:#becbcd; border:1px solid var(--stroke-2); background:#1b2228; }
+  .lib-controls button[aria-pressed=true] { color:#8de5c7; border-color:#557e70; background:#213731; }
+  .lib-controls .lib-spacer { flex:1; } .lib-pin { position:absolute; right:8px; bottom:8px; z-index:2; width:30px; justify-content:center; background:#111820dd; color:white; font-size:15px; }
+  .lib-pin[aria-pressed=true] { color:#83e5c2; }
+  #backStudio[hidden] { display:none; }
+  #folders.lib-list .grid { display:flex; flex-direction:column; gap:4px; }
+  #folders.lib-list .card { display:flex; min-height:74px; }
+  #folders.lib-list .thumb { width:115px; flex:none; aspect-ratio:auto; }
+  #folders.lib-list .thumb .id,#folders.lib-list .thumb .kind { display:none; }
+  #folders.lib-list .body { flex:1; min-width:0; display:grid; align-content:center; grid-template-columns:minmax(0,1fr) auto; gap:1px 14px; }
+  #folders.lib-list .title,#folders.lib-list .meta,#folders.lib-list .err,#folders.lib-list .chips { grid-column:1; }
+  #folders.lib-list .row { grid-column:2; grid-row:1/5; align-self:center; margin:0; }
+  #folders.lib-list .chips { margin-top:3px; } .imp { min-height:205px; border:1px dashed #426459; border-radius:7px; }
+  .imp .plus { border-radius:6px; box-shadow:none; width:34px; height:34px; font-size:23px; }
+  @media(max-width:750px){ header {gap:8px;} header .sub {display:none;} .lib-controls .lib-spacer {display:none;} #folders.lib-list .thumb {width:70px;} #folders.lib-list .body { display:block; } #folders.lib-list .row {margin-top:8px;} .folder .fbtn {opacity:1;} }
 </style>
+<link rel="stylesheet" href="/hub-library.css">
+<link rel="stylesheet" href="/reverse.css">
 <!--I18N-->
 </head>
-<body>
+<body data-product="{{common.productName}}">
 <nav id="menubar"></nav>
-<header>
-  <span class="logo">C</span>
-  <div><h1>Coulisses</h1><div class="sub">{{hub.sub}}</div></div>
+<header class="app-head">
+  <span class="logo" aria-hidden="true"><svg viewBox="0 0 30 26" width="27" height="24"><path fill="currentColor" d="m1 20 9-16h5L6 20zM10 20l9-16h5l-9 16zM19 20l7-12 3 5-4 7z"/></svg></span>
+  <div><h1>{{common.productName}}</h1><div class="sub">{{hub.sub}}</div></div>
   <!-- inside a studio (its « Accueil »): the way back to it -->
   <button class="soft" id="backStudio" hidden></button>
   <span class="grow"></span>
   <span class="langs" id="langs" title="Langue · Language"><button data-l="fr">FR</button><button data-l="en">EN</button></span>
   <span class="pill" id="where"><span class="dot"></span>{{hub.where}}</span>
+  <button id="newBtn" title="{{hub.new.buttonTitle}}"><span aria-hidden="true">＋</span>{{hub.new.button}}</button>
 </header>
-<main>
-  <div class="topbar"><h2>{{hub.projects}} <span class="n" id="nproj"></span></h2><span class="grow"></span>
-    <button class="soft" id="updBtn" title="{{hub.upd.buttonTitle}}">{{hub.upd.button}}<span class="badge" id="updN"></span></button><button class="soft" id="scanBtn" title="{{hub.scan.buttonTitle}}">{{hub.scan.button}}</button><button id="newBtn" title="{{hub.new.buttonTitle}}">{{hub.new.button}}</button></div>
+<div class="library-shell">
+<aside id="libraryRail" class="library-rail" aria-label="{{hub.library.browse}}">
+  <nav class="lib-nav" aria-label="{{hub.lib.tools}}">
+    <h2>{{hub.library.browse}}</h2>
+    <button id="allProjects" type="button"><span aria-hidden="true" class="nav-glyph">▦</span>{{hub.library.all}}<span class="nav-count"></span></button>
+    <button id="favOnly" type="button" aria-pressed="false"><span aria-hidden="true" class="nav-glyph">☆</span>{{hub.lib.favorites}}<span class="nav-count"></span></button>
+    <button id="openNotesOnly" type="button" aria-pressed="false"><span aria-hidden="true" class="nav-glyph">◉</span>{{hub.lib.todo}}<span class="nav-count"></span></button>
+  </nav>
+  <nav class="lib-dir-nav" aria-label="{{hub.library.folders}}"><h2>{{hub.library.folders}}</h2><div id="folderLinks"></div></nav>
+  <section id="addSec"><h2>{{hub.add}}</h2><div id="pgrid"></div></section>
+  <div class="rail-utils"><button class="soft" id="scanBtn" title="{{hub.scan.buttonTitle}}">{{hub.scan.button}}</button>
+    <button class="soft" id="updBtn" title="{{hub.upd.buttonTitle}}">{{hub.upd.button}}<span class="badge" id="updN"></span></button></div>
+</aside>
+<main id="libraryMain">
+  <div class="library-heading"><h1>{{hub.library.library}}</h1><span id="activeScope"></span><div class="reverse-actions"><button type="button" id="reverseOpen" class="soft" aria-haspopup="dialog"></button><button type="button" id="reconstructOpen" class="soft" aria-haspopup="dialog"></button></div><button type="button" id="libraryNavToggle" class="soft" aria-expanded="false" aria-controls="libraryRail">{{hub.library.browse}}</button></div>
+  <section id="featuredProject" hidden aria-labelledby="featureTitle">
+    <div class="feature-art"><img alt="" id="featureImage"><span class="feature-clapper" aria-hidden="true">▷</span></div>
+    <div class="feature-info"><span id="featureState"></span><h2 id="featureTitle" class="title"></h2><div class="feature-meta" id="featureMeta"></div>
+      <div class="feature-chips chips"></div><div class="feature-actions"><button class="open" id="featureOpen">{{hub.openStudio}}<span aria-hidden="true"> ↗</span></button><button class="soft" id="featureReverse" type="button" aria-haspopup="dialog" hidden></button></div><div class="err"></div></div>
+  </section>
+  <div class="topbar"><h2>{{hub.projects}} <span class="n" id="nproj"></span></h2></div>
+  <div class="lib-controls" role="group" aria-label="{{hub.lib.tools}}">
+    <input id="projectSearch" type="search" aria-label="{{hub.lib.find}}" placeholder="{{hub.lib.find}}">
+    <span class="lib-spacer"></span>
+    <select id="librarySort" aria-label="{{hub.lib.sort}}"><option value="default">{{hub.lib.default}}</option><option value="recent">{{hub.lib.recent}}</option><option value="title">{{hub.lib.title}}</option></select>
+    <button id="libraryList" type="button" aria-pressed="false">{{hub.lib.list}}</button>
+  </div>
   <div id="folders"><div class="empty">{{hub.loading}}</div></div>
-  <section id="addSec"><h2>{{hub.add}}</h2>
-  <div class="grid" id="pgrid"></div></section>
+  <footer id="foot"></footer>
 </main>
-<footer id="foot"></footer>
+</div>
 <script src="/menubar.js"></script>
 <script src="/shortcuts.js"></script>
+<script src="/reverse-ui.js"></script>
+<script src="/reconstruct-ui.js"></script>
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
   // the texts of this page, in the user's language (window.T, given by hub-server.mjs: lib/i18n.mjs)
   const I18N = window.__I18N ?? { lang: 'fr', dict: {} }, LANG = I18N.lang, T = window.T ?? ((k) => k);
+  const reverseOptions = {
+    language: LANG,
+    reveal: revealImportedProject,
+    openProject: async project => {
+      await revealImportedProject(project);
+      const selected = library.find(entry => entry.id === project.id);
+      if (selected) await openEp(selected, $('#featuredProject'));
+    },
+  };
+  const reverse = window.createReverseEditor(reverseOptions);
+  const reconstruction = window.createReconstructionEditor(reverseOptions);
+  $('#reverseOpen').textContent = reverse.label;
+  $('#reverseOpen').onclick = () => reverse.open();
+  $('#reconstructOpen').textContent = reconstruction.label;
+  $('#reconstructOpen').onclick = () => reconstruction.open();
   const LOC = LANG === 'fr' ? [] : 'en-US', TLOC = LANG === 'fr' ? [] : 'en-GB';   // French: the browser's own formats, as before
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const dur = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '');
@@ -211,14 +285,33 @@
   function card(e) {
     const c = document.createElement('div'); c.className = 'card' + (openable(e) ? '' : ' off'); c.dataset.id = e.id;
     const what = e.project ? (e.video ? T('hub.exported', { day: esc(day(e.video.mtime)) }) : e.missing ? T('hub.missingFolder') : e.kind === 'remotion' || e.kind === 'hyperframes' ? T('hub.notExported') : e.kind === 'run' ? T('hub.waitingExport') : T('hub.noVideo')) : (e.video ? T('hub.rendered', { day: esc(day(e.video.mtime)) }) : T('hub.notRendered'));
-    c.innerHTML = `<div class="thumb" style="${e.thumb ? `background-image:url('/thumb/${e.id}?v=${encodeURIComponent(e.video?.mtime ?? '')}')` : ''}"><span class="id">${esc(e.project ? (e.missing ? T('hub.badge.missing') : T('hub.badge.project')) : e.id)}</span>${e.studio && !e.studio.paused ? `<span class="live">${T('hub.badge.open')}</span>` : ''}${e.project && !e.missing ? `<span class="kind">${esc(kindOf(e))}</span>` : ''}</div>
+    c.innerHTML = `<div class="thumb">${e.thumb ? `<img loading="lazy" decoding="async" alt="" src="${thumbUrl(e)}">` : ''}<span class="id">${esc(e.project ? (e.missing ? T('hub.badge.missing') : T('hub.badge.project')) : e.id)}</span>${e.studio && !e.studio.paused ? `<span class="live">${T('hub.badge.open')}</span>` : ''}${e.project && !e.missing ? `<span class="kind">${esc(kindOf(e))}</span>` : ''}</div>
       <div class="body"><div class="title"><span>${esc(e.title)}</span>${e.missing ? '' : engineTag(e)}</div>
         <div class="meta">${[e.video ? dur(e.duration) : '', what, e.reviewed ? T('hub.reviewed', { day: esc(day(e.reviewed)) }) : ''].filter(Boolean).join(' · ')}</div>
         ${e.project ? `<div class="meta" title="${esc(e.root ?? e.revue)}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.root ?? e.why ?? '')}</div>` : ''}
         <div class="chips">${chipsOf(e)}</div>
         <div class="row"><button class="fold" title="${esc(T('hub.folder.moveTitle'))}">${T('hub.folder.move')}</button>${e.project ? `<button class="more" title="${esc(T('hub.removeTitle'))}">${T('hub.remove')}</button>` : ''}<span class="grow"></span><button class="open" ${openable(e) ? '' : 'disabled'}>${T('hub.openStudio')}</button></div>
         <div class="err"></div></div>`;
-    c.addEventListener('click', (ev) => { if (!ev.target.closest('.more') && !ev.target.closest('.fold')) openEp(e, c); });
+    const thumb = c.querySelector('.thumb'); thumb.classList.toggle('no-image', !e.thumb);
+    const preview = document.createElement('button'); preview.className = 'lib-preview';
+    preview.title = T('hub.library.preview') + ' · ' + e.title; preview.setAttribute('aria-label', preview.title);
+    preview.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3-6.5 10-6.5S22 12 22 12s-3 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    preview.onclick = ev => { ev.stopPropagation(); previewId = e.id; drawLibrary(); $('#featureOpen').focus({preventScroll:true}); $('#featuredProject').scrollIntoView({block:'nearest'}); };
+    thumb.append(preview);
+    const image = thumb.querySelector('img');
+    if (image) image.onerror = () => {image.hidden = true; thumb.classList.add('no-image');};
+    const pin = document.createElement('button'); pin.className = 'lib-pin';
+    const pinned = favorites.has(e.id);
+    pin.textContent = pinned ? '★' : '☆';
+    pin.setAttribute('aria-pressed', String(pinned)); pin.title = T(pinned ? 'hub.lib.unpin' : 'hub.lib.pin');
+    pin.setAttribute('aria-label', pin.title + ' · ' + e.title); thumb.append(pin);
+    pin.onclick = ev => {
+      ev.stopPropagation(); if (favorites.has(e.id)) favorites.delete(e.id); else favorites.add(e.id);
+      store.set('favorites', [...favorites]); drawLibrary();
+      const focus = [...$('#folders').querySelectorAll('.card')].find(x => x.dataset.id === e.id)?.querySelector('.lib-pin') || $('#favOnly');
+      focus.focus({preventScroll:true});
+    };
+    c.addEventListener('click', (ev) => { if (!ev.target.closest('.more, .fold, .lib-pin, .lib-preview')) openEp(e, c); });
     c.querySelector('.fold').addEventListener('click', (ev) => { ev.stopPropagation(); folderMenu(e, ev.currentTarget); });
     c.draggable = true;
     c.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/coulisses-id', e.id); ev.dataTransfer.effectAllowed = 'move'; });
@@ -235,7 +328,7 @@
     c.innerHTML = `<div class="plus">+</div><div class="t">${T('hub.import.title')}</div>
       <div class="d">${T('hub.import.what')}</div>
       <div class="btns"><button id="impFolder">${T('hub.import.folder')}</button><button class="soft" id="impVideo">${T('hub.import.video')}</button></div>
-      <a id="impPaste">${T('hub.import.paste')}</a>
+      <button type="button" class="linkish" id="impPaste">${T('hub.import.paste')}</button>
       <div class="paste"><input id="impPath" placeholder="${esc(T('hub.import.placeholder'))}" spellcheck="false"><button id="impGo">${T('hub.import.go')}</button></div>
       <div class="err" id="impErr"></div>`;
     const err = (m) => { c.querySelector('#impErr').textContent = m || ''; };
@@ -243,8 +336,7 @@
       err('');
       const r = await (await fetch('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) })).json().catch(() => null);
       if (!r?.ok) { err(r?.why ?? T('hub.import.failed')); return; }
-      last = ''; await load(true);
-      const el = document.querySelector(`.card[data-id="${r.project.id}"]`); el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); el?.animate([{ boxShadow: '0 0 0 4px rgba(201,242,107,.5)' }, { boxShadow: '0 0 0 0 rgba(201,242,107,0)' }], { duration: 1600 });
+      await revealImportedProject(r.project);
     };
     const pickAnd = async (what, b) => {
       err(''); const t = b.textContent; b.disabled = true; b.innerHTML = `<span class="spin"></span>${T('hub.import.dialogOpen')}`;
@@ -282,6 +374,7 @@
     try {
       const r = await (await fetch('/api/open?ep=' + e.id, { method: 'POST' })).json();
       if (!r.ok) throw new Error(r.why || T('hub.error'));
+      store.set('lastProject', e.id);
       goTo(r.url);
       if (inStudioFrame) { b.disabled = false; b.textContent = T('hub.openStudio'); }
     } catch (err) { busy = null; b.disabled = false; b.textContent = T('hub.retry'); card.querySelector('.err').textContent = err.message; }
@@ -291,33 +384,189 @@
   let FOLDERS = [];
   const store = { get(k, d) { try { const v = localStorage.getItem('hub.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem('hub.' + k, JSON.stringify(v)); } catch { /* private window */ } } };
   const collapsed = new Set(store.get('closed', []));
-  function renderFolders(all) {
-    const box = $('#folders'), groups = new Map();
-    for (const e of all) { const k = e.folder ?? NOF; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
-    FOLDERS = [...groups.keys()].filter((k) => k !== NOF).sort((a, b) => a.localeCompare(b, LANG));
-    const names = [...FOLDERS, ...(groups.has(NOF) ? [NOF] : [])];
-    box.innerHTML = '';
-    if (!names.length) { box.innerHTML = `<div class="empty">${T('hub.nothing')}</div>`; return; }
-    for (const k of names) {
-      const list = groups.get(k).sort((a, b) => (a.project ? 1 : 0) - (b.project ? 1 : 0) || (a.project ? String(a.title).localeCompare(String(b.title), LANG) : a.id.localeCompare(b.id)));
-      const sec = document.createElement('section'); sec.className = 'folder' + (collapsed.has(k) ? ' closed' : ''); sec.dataset.folder = k === NOF ? '' : k;
-      sec.innerHTML = `<h2 class="fh"><button class="caret" title="${esc(T('hub.folder.fold'))}">${collapsed.has(k) ? '▸' : '▾'}</button><span class="fname">${esc(k === NOF ? T('hub.noFolder') : k)}</span><span class="n">${list.length}</span><span class="grow"></span>${k === NOF ? '' : `<button class="fbtn" data-act="rename">${T('hub.folder.rename')}</button>`}</h2><div class="grid"></div>`;
-      const grid = sec.querySelector('.grid'); for (const e of list) grid.appendChild(card(e));
-      const fold = () => { const c = sec.classList.toggle('closed'); if (c) collapsed.add(k); else collapsed.delete(k); store.set('closed', [...collapsed]); sec.querySelector('.caret').textContent = c ? '▸' : '▾'; };
-      sec.querySelector('.caret').onclick = fold;
-      sec.querySelector('.fname').ondblclick = fold;
-      sec.querySelector('[data-act="rename"]')?.addEventListener('click', async () => {
-        const to = prompt(T('hub.folder.renamePrompt', { name: k }), k)?.trim();
-        if (!to || to === k) return;
-        await postJSON('/api/folder/rename', { from: k, to });
-        if (collapsed.delete(k)) { collapsed.add(to); store.set('closed', [...collapsed]); }
-        last = ''; load(true);
+  const favorites = new Set(store.get('favorites', []));
+  let library = [], favOnly = store.get('favoritesOnly', false), todoOnly = store.get('toReviewOnly', false);
+  let listMode = store.get('listMode', false);
+  const normal = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase();
+  $('#librarySort').value = store.get('sort', 'default');
+  const PAGE_SIZE = 36, limits = new Map(), sections = new Map(), cards = new Map();
+  const thumbUrl = e => '/thumb/' + encodeURIComponent(e.id) + '?v=' + encodeURIComponent(e.thumbVersion || e.video?.mtime || '');
+  let folderFilter = store.get('folderFilter', null), previewId = null, featureKey = '', navKey = '';
+  const folderName = key => key === NOF ? T('hub.noFolder') : key;
+  function reconcile(parent, nodes) {
+    const wanted = new Set(nodes);
+    for (const node of [...parent.children]) if (!wanted.has(node)) node.remove();
+    let cursor = parent.firstElementChild;
+    for (const node of nodes) {
+      if (node !== cursor) parent.insertBefore(node, cursor); else cursor = cursor.nextElementSibling;
+    }
+  }
+  function showFeature(all) {
+    const wrap = $('#featuredProject'), recent = store.get('lastProject', null);
+    const selected = all.find(e => e.id === previewId) || all.find(e => e.id === recent && openable(e))
+      || all.find(e => e.studio && !e.studio.paused) || all.find(openable) || all[0];
+    wrap.hidden = !selected;
+    if (!selected) { featureKey = ''; $('#featureImage').removeAttribute('src'); return; }
+    const key = JSON.stringify([selected, previewId, recent]);
+    if (key === featureKey) return;
+    featureKey = key;
+    $('#featureTitle').textContent = selected.title;
+    $('#featureMeta').textContent = [selected.project ? selected.channel || selected.folder : selected.id, selected.engine && T('hub.engine.' + selected.engine), dur(selected.duration)].filter(Boolean).join(' · ');
+    const open = selected.studio && !selected.studio.paused;
+    $('#featureState').textContent = T(open ? 'hub.library.active' : recent === selected.id ? 'hub.library.lastOpened' : 'hub.library.featured');
+    wrap.querySelector('.feature-chips').innerHTML = chipsOf(selected);
+    const b = $('#featureOpen');
+    b.disabled = !openable(selected) || busy === selected.id;
+    b.textContent = T(open || recent === selected.id ? 'hub.library.resume' : 'hub.openStudio') + ' ↗';
+    b.onclick = () => openEp(selected, wrap);
+    const edit = $('#featureReverse');
+    edit.hidden = !selected.reverse || selected.missing;
+    if (!edit.hidden) {
+      edit.textContent = reverse.editLabel;
+      edit.onclick = () => reverse.open(selected.id);
+    }
+    wrap.querySelector('.err').textContent = '';
+    const img = $('#featureImage'), src = selected.thumb ? thumbUrl(selected) : '';
+    if (img.getAttribute('src') !== src) {
+      img.hidden = !src;
+      img.onerror = () => { img.hidden = true; };
+      if (src) img.src = src; else img.removeAttribute('src');
+    }
+  }
+  function updateRail(counts) {
+    const keys = [...counts.keys()].sort((a,b) => a === NOF ? 1 : b === NOF ? -1 : a.localeCompare(b, LANG));
+    if (!counts.has(folderFilter)) folderFilter = null;
+    FOLDERS = keys.filter(k => k !== NOF);
+    for (const [id,value,on] of [
+      ['allProjects',library.length,folderFilter === null && !favOnly && !todoOnly],
+      ['favOnly',library.filter(e => favorites.has(e.id)).length,favOnly],
+      ['openNotesOnly',library.filter(e => e.open > 0).length,todoOnly],
+    ]) {
+      const b = document.getElementById(id); b.setAttribute('aria-pressed', String(on)); b.querySelector('.nav-count').textContent = value;
+    }
+    const key = JSON.stringify(keys.map(k => [k,counts.get(k)]));
+    const links = $('#folderLinks');
+    if (key !== navKey) {
+      navKey = key;
+      const current = new Map([...links.children].map(b => [b.dataset.folder || NOF,b]));
+      const buttons = keys.map(k => {
+        const b = current.get(k) || document.createElement('button'); b.type = 'button'; b.dataset.folder = k === NOF ? '' : k;
+        if (!b.children.length) b.innerHTML = '<span></span><span class="nav-count"></span>';
+        b.firstElementChild.textContent = folderName(k); b.lastElementChild.textContent = counts.get(k);
+        b.onclick = () => { folderFilter = folderFilter === k ? null : k; store.set('folderFilter',folderFilter); drawLibrary(); };
+        return b;
       });
-      const has = (ev) => [...(ev.dataTransfer?.types ?? [])].includes('text/coulisses-id');
-      sec.addEventListener('dragover', (ev) => { if (!has(ev)) return; ev.preventDefault(); sec.classList.add('drop'); });
-      sec.addEventListener('dragleave', (ev) => { if (!sec.contains(ev.relatedTarget)) sec.classList.remove('drop'); });
-      sec.addEventListener('drop', (ev) => { if (!has(ev)) return; ev.preventDefault(); sec.classList.remove('drop'); moveTo([ev.dataTransfer.getData('text/coulisses-id')], k === NOF ? '' : k); });
-      box.appendChild(sec);
+      reconcile(links,buttons);
+    }
+    for (const b of links.children) b.setAttribute('aria-pressed', String(folderFilter === (b.dataset.folder || NOF)));
+    $('.lib-dir-nav').hidden = !counts.size;
+  }
+  function drawLibrary() {
+    const counts = new Map();
+    for (const e of library) { const k = e.folder ?? NOF; counts.set(k,(counts.get(k) || 0) + 1); }
+    updateRail(counts);
+    const terms = normal($('#projectSearch').value).trim().split(/\s+/).filter(Boolean);
+    const all = library.filter(e => (!folderFilter || (e.folder ?? NOF) === folderFilter) && (!favOnly || favorites.has(e.id)) && (!todoOnly || e.open > 0)
+      && (!terms.length || terms.every(t => e.searchText.includes(t))));
+    $('#activeScope').textContent = [folderFilter && folderName(folderFilter),favOnly && T('hub.lib.favorites'),todoOnly && T('hub.lib.todo')].filter(Boolean).join(' · ');
+    $('#libraryList').setAttribute('aria-pressed', String(listMode)); $('#folders').classList.toggle('lib-list', listMode);
+    $('#nproj').textContent = all.length === library.length ? String(all.length) : all.length + ' / ' + library.length;
+    showFeature(all); renderFolders(all, Boolean(terms.length));
+  }
+  function clearFilters() {
+    folderFilter = null; favOnly = todoOnly = false; $('#projectSearch').value = '';
+    store.set('favoritesOnly',false); store.set('toReviewOnly',false); store.set('folderFilter',null); drawLibrary();
+  }
+  $('#allProjects').onclick = clearFilters;
+  $('#libraryNavToggle').onclick = e => {
+    const b = e.currentTarget, next = b.getAttribute('aria-expanded') === 'false'; b.setAttribute('aria-expanded',String(next));
+    if (next) $('#allProjects').focus({preventScroll:true});
+  };
+  function revealImport() {
+    if (getComputedStyle($('#libraryRail')).display === 'none') $('#libraryNavToggle').setAttribute('aria-expanded','true');
+  }
+  async function revealImportedProject(project) {
+    previewId = project.id; last = ''; await load(true);
+    const visible = () => document.querySelector(`.card[data-id="${CSS.escape(project.id)}"]`)?.getClientRects().length;
+    if (!visible()) {
+      // An import can live outside the selected folder, favorite set or first
+      // page. Narrow to its title instead of materializing thousands of cards.
+      folderFilter = null; favOnly = todoOnly = false;
+      store.set('folderFilter',null); store.set('favoritesOnly',false); store.set('toReviewOnly',false);
+      $('#projectSearch').value = project.title || project.id; drawLibrary();
+      if (!visible()) { $('#projectSearch').value = project.id; drawLibrary(); }
+    } else drawLibrary();
+    $('#libraryNavToggle').setAttribute('aria-expanded','false');
+    const hero = $('#featuredProject');
+    if (!hero.hidden) {
+      const focus = $('#featureOpen').disabled ? $('#featureTitle') : $('#featureOpen');
+      if (focus.id === 'featureTitle') focus.tabIndex = -1;
+      focus.focus({preventScroll:true}); hero.scrollIntoView({block:'nearest'});
+    }
+  }
+  $('#projectSearch').oninput = drawLibrary;
+  $('#librarySort').onchange = e => { store.set('sort', e.target.value); drawLibrary(); };
+  $('#favOnly').onclick = () => { favOnly = !favOnly; store.set('favoritesOnly', favOnly); drawLibrary(); };
+  $('#openNotesOnly').onclick = () => { todoOnly = !todoOnly; store.set('toReviewOnly', todoOnly); drawLibrary(); };
+  $('#libraryList').onclick = () => { listMode = !listMode; store.set('listMode', listMode); drawLibrary(); };
+  function createFolder(k) {
+    const sec = document.createElement('section'); sec.className = 'folder'; sec.dataset.folder = k === NOF ? '' : k;
+    sec.innerHTML = `<h2 class="fh"><button class="caret" aria-label="${esc(T('hub.folder.fold'))}"></button><span class="fname"></span>
+      <span class="n"></span><span class="grow"></span>${k === NOF ? '' : `<button class="fbtn" data-act="rename">${T('hub.folder.rename')}</button>`}</h2>
+      <div class="grid"></div><button class="loading-more soft" hidden></button>`;
+    sec.querySelector('.fname').textContent = folderName(k);
+    const fold = () => {
+      if (sec.classList.contains('closed')) collapsed.delete(k); else collapsed.add(k);
+      store.set('closed',[...collapsed]); drawLibrary();
+    };
+    sec.querySelector('.caret').onclick = fold;
+    sec.querySelector('.fname').ondblclick = fold;
+    sec.querySelector('.loading-more').onclick = () => { limits.set(k,(limits.get(k) || PAGE_SIZE) + PAGE_SIZE); drawLibrary(); };
+    sec.querySelector('[data-act=rename]')?.addEventListener('click', async () => {
+      const to = prompt(T('hub.folder.renamePrompt',{name:k}),k)?.trim(); if (!to || to === k) return;
+      await postJSON('/api/folder/rename',{from:k,to});
+      if (collapsed.delete(k)) {collapsed.add(to);store.set('closed',[...collapsed]);}
+      if (folderFilter === k) {folderFilter = to;store.set('folderFilter',to);}
+      last = ''; load(true);
+    });
+    const has = e => [...(e.dataTransfer?.types || [])].includes('text/coulisses-id');
+    sec.addEventListener('dragover', e => {if (has(e)) {e.preventDefault();sec.classList.add('drop');}});
+    sec.addEventListener('dragleave', e => {if (!sec.contains(e.relatedTarget)) sec.classList.remove('drop');});
+    sec.addEventListener('drop', e => {if (has(e)) {e.preventDefault();sec.classList.remove('drop');moveTo([e.dataTransfer.getData('text/coulisses-id')], k === NOF ? '' : k);}});
+    return sec;
+  }
+  function cardFor(e) {
+    const key = JSON.stringify([e,favorites.has(e.id)]), cached = cards.get(e.id);
+    if (cached && (cached.key === key || busy === e.id)) return cached.node;
+    const node = card(e); cards.set(e.id,{key,node}); return node;
+  }
+  function renderFolders(all, searching) {
+    const box = $('#folders'), groups = new Map(), desired = [];
+    const focused = document.activeElement, activeId = focused?.closest('.card[data-id]')?.dataset.id;
+    for (const e of all) {const k = e.folder ?? NOF; if (!groups.has(k)) groups.set(k,[]); groups.get(k).push(e);}
+    for (const k of [...FOLDERS, NOF]) {
+      const list = groups.get(k); if (!list) continue;
+      const sort = $('#librarySort').value;
+      const date = e => new Date(e.reviewed || e.video?.mtime || 0).getTime() || 0;
+      list.sort((a,b) => (sort === 'recent' ? date(b)-date(a) : 0) || (sort === 'default' ? Number(!!a.project)-Number(!!b.project) : 0)
+        || (sort === 'default' && !a.project && !b.project ? a.id.localeCompare(b.id) : String(a.title).localeCompare(String(b.title),LANG)));
+      const sec = sections.get(k) || createFolder(k); sections.set(k,sec); desired.push(sec);
+      const closed = !searching && collapsed.has(k), more = sec.querySelector('.loading-more'), grid = sec.querySelector('.grid');
+      sec.classList.toggle('closed',closed); sec.querySelector('.fh .n').textContent = list.length;
+      const caret = sec.querySelector('.caret'); caret.textContent = closed ? '▸' : '▾'; caret.setAttribute('aria-expanded',String(!closed));
+      const limit = limits.get(k) || PAGE_SIZE;
+      if (!closed || grid.childElementCount) reconcile(grid,list.slice(0,limit).map(cardFor));
+      more.hidden = closed || list.length <= limit; more.textContent = T('hub.library.more',{n:Math.min(PAGE_SIZE,list.length-limit)});
+    }
+    if (!desired.length) {
+      const el = box.querySelector('.empty') || document.createElement('div'); el.className = 'empty'; el.textContent = T(library.length ? 'hub.lib.noMatches' : 'hub.nothing');
+      if (library.length) {const reset = document.createElement('button'); reset.className='soft'; reset.textContent=T('hub.library.filterReset'); reset.onclick=clearFilters; el.append(' ',reset);}
+      desired.push(el);
+    }
+    reconcile(box,desired);
+    if (activeId && !focused.isConnected) {
+      const replacement = cards.get(activeId)?.node;
+      if (replacement?.isConnected && focused.classList.length) replacement.getElementsByClassName(focused.classList[0])[0]?.focus({preventScroll:true});
     }
   }
   async function moveTo(ids, folder) { await postJSON('/api/folder', { ids, folder }); last = ''; await load(true); }
@@ -512,7 +761,7 @@
   }
   $('#updBtn').onclick = openUpdates;
   loadUpd();   // the check of the day (the server answers from its memory when it checked less than a day ago)
-  let timer = null, impCard = null;
+  let timer = null, impCard = null, latestRequest = 0;
   let shown = !inStudioFrame;
   if (inStudioFrame) window.addEventListener('message', (e) => {
     if (e.source !== window.parent) return;
@@ -521,24 +770,31 @@
     else if (d.coulisses === 'hidden') { shown = false; clearTimeout(timer); }
   });
   async function load(once) {
+    const request = ++latestRequest;
     try {
-      const r = await (await fetch('/api/episodes', { cache: 'no-store' })).json();
-      const sig = JSON.stringify(r);
-      if (sig !== last) {
-        last = sig;
+      const response = await fetch('/api/episodes', { cache: 'no-store', headers: last ? {'If-None-Match':last} : {} });
+      if (response.ok) {
+        const r = await response.json();
+        if (request !== latestRequest) return;
+        last = response.headers.get('ETag') || '';
         $('#where').innerHTML = `<span class="dot"></span>${r.installed ? T('hub.wherePipeline') : T('hub.whereWorkshop')}`;
         $('#foot').textContent = r.episodesDir;
-        const pg = $('#pgrid'), keep = document.activeElement?.closest?.('.imp');
+        const pg = $('#pgrid');
         impCard ??= importCard();
         if (!pg.contains(impCard)) pg.appendChild(impCard);
-        if (keep) keep.querySelector('input')?.focus();
-        const all = [...(r.episodes ?? []), ...(r.projects ?? [])];
-        $('#nproj').textContent = all.length ? String(all.length) : '';
-        renderFolders(all);
+        library = [...(r.episodes ?? []), ...(r.projects ?? [])];
+        for (const e of library) e.searchText = normal([e.title,e.id,e.folder,e.channel,e.engine].join(' '));
+        const ids = new Set(library.map(e => e.id)), groups = new Set(library.map(e => e.folder ?? NOF));
+        for (const id of cards.keys()) if (!ids.has(id)) cards.delete(id);
+        for (const k of sections.keys()) if (!groups.has(k)) {sections.delete(k);limits.delete(k);}
+        drawLibrary();
       }
     } catch { /* the hub restarts: retried */ }
-    if (!once && shown) { clearTimeout(timer); timer = setTimeout(load, 5000); }
+    finally {
+      if (request === latestRequest) { clearTimeout(timer); if (shown && !document.hidden) timer = setTimeout(load,5000); }
+    }
   }
+  document.addEventListener('visibilitychange', () => { clearTimeout(timer); if (!document.hidden && shown) load(); });
   // « Langue · Language »: kept for the user (settings.json), the page comes back in the new language
   async function setLanguage(l) {
     if (l === LANG) return;
@@ -556,7 +812,7 @@
   const postJSON = (u, b) => fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b ?? {}) }).then((r) => r.json()).catch(() => null);
   const dlg = (o) => window.MenuBar?.dialog({ buttons: [{ label: T('menu.dlg.close'), primary: true }], ...o });
   const inStudio = () => T('menu.why.inStudio');
-  const impErr = (m) => { const e = document.querySelector('#impErr'); if (e) { e.textContent = m || ''; e.closest('.imp')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } };
+  const impErr = (m) => { const e = document.querySelector('#impErr'); if (e) { if (m) revealImport(); e.textContent = m || ''; e.closest('.imp')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } };
   // the Windows dialog, then the import; « Ouvrir un projet… » then opens it in the studio
   // Fichier › Accès depuis l'iPad… (lib/remote.mjs): Coulisses in the iPad's browser through Tailscale, opened and closed
   // from the PC; its address, to open in Safari there
@@ -584,8 +840,7 @@
     if (!imp?.ok) { impErr(imp?.why ?? T('hub.import.failed')); return; }
     const p = imp.project;
     if (open && (p.episode || p.video || p.kind === 'remotion' || p.kind === 'hyperframes')) { goTo('/go/' + p.id); return; }
-    last = ''; await load(true);
-    document.querySelector(`.card[data-id="${p.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await revealImportedProject(p);
   }
   async function showDoc(name, title) {
     const r = await fetch('/api/doc?name=' + name, { cache: 'no-store' }).catch(() => null);
@@ -596,7 +851,7 @@
   async function showAbout() {
     const a = await (await fetch('/api/about', { cache: 'no-store' })).json().catch(() => null) ?? {};
     const row = (k, v) => (v ? `<div class="row"><span class="lbl">${esc(k)}</span><span>${v}</span></div>` : '');
-    const d = dlg({ title: T('menu.about'), html: `<p><b>Coulisses</b> ${esc(a.version ?? '')}</p><p>${esc(T('menu.about.what'))}</p>`
+    const d = dlg({ title: T('menu.about'), html: `<p><b>${esc(a.name)}</b> ${esc(a.version ?? '')}</p><p>${esc(T('menu.about.what'))}</p>`
       + row(T('menu.about.version'), esc(a.version)) + row(T('menu.about.installed'), a.installed ? esc(day(a.installed)) : '') + row(T('menu.about.commit'), a.commit ? esc(`${a.commit}${a.branch ? ` (${a.branch})` : ''}`) : '')
       + row(T('menu.about.folder'), `${esc(a.folder ?? '')}${a.place === 'workshop' ? ` · ${esc(T('menu.about.workshop'))}` : ''}`)
       + row(T('menu.about.license'), esc(a.license)) + row(T('menu.about.source'), `<a href="#" id="mbRepo">${esc(String(a.url ?? '').replace(/^https:\/\//, ''))}</a>`) });
@@ -618,9 +873,11 @@
       { id: 'open', label: T('menu.open'), key: () => SC.show('open'), run: () => menuPick('project', true) },
       { id: 'importFolder', label: T('menu.importFolder'), run: () => menuPick('folder', false) },
       { id: 'importVideo', label: T('menu.importVideo'), run: () => menuPick('video', false) },
+      { id: 'reverse', label: reverse.label, run: () => reverse.open() },
+      { id: 'reconstruct', label: reconstruction.label, run: () => reconstruction.open() },
       { id: 'scan', label: T('menu.scan'), run: openScan },
       { id: 'ipad', label: T('hub.ipad.menu') !== 'hub.ipad.menu' ? T('hub.ipad.menu') : document.documentElement.lang === 'en' ? 'Access from the iPad…' : 'Accès depuis l’iPad…', run: openIpad },
-      { id: 'pastePath', label: T('menu.pastePath'), run: () => { const c = document.querySelector('.imp'); if (!c) return; c.classList.add('pasting'); c.scrollIntoView({ block: 'center' }); c.querySelector('#impPath').focus(); } },
+      { id: 'pastePath', label: T('menu.pastePath'), run: () => { const c = document.querySelector('.imp'); if (!c) return; revealImport(); c.classList.add('pasting'); c.scrollIntoView({ block: 'center' }); c.querySelector('#impPath').focus(); } },
       '-',
       { id: 'revealFolder', label: T('menu.revealFolder'), disabled: inStudio },
       { id: 'revealVideo', label: T('menu.revealVideo'), disabled: inStudio },
@@ -668,7 +925,11 @@
   ]);
   // the keys of shortcuts.js (Aide › Raccourcis clavier: the defaults, or the user's own), the ones of the home screen
   window.addEventListener('keydown', (e) => {
-    if (SC.is(e, 'open')) { e.preventDefault(); menuPick('project', true); }
+    if (document.querySelector('#reverseDialog[open],#reconstructDialog[open]')) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k' && !document.querySelector('.mb-dlg, dialog[open]')) {
+      e.preventDefault(); $('#projectSearch').focus(); $('#projectSearch').select();
+    }
+    else if (SC.is(e, 'open')) { e.preventDefault(); menuPick('project', true); }
     else if (SC.is(e, 'newProject') && !document.querySelector('.mb-dlg')) { e.preventDefault(); openNew(); }
     else if (SC.is(e, 'help')) { e.preventDefault(); SC.open(); }
     else if (e.key === 'F1') e.preventDefault();
@@ -676,6 +937,12 @@
   });
   // File › Open a project… / Import… chosen in a studio: it comes back here (?menu=open|folder|video) to use the dialog
   const asked = new URLSearchParams(location.search).get('menu');
+  const requestedReverse = new URLSearchParams(location.search).get('reverse');
+  if (requestedReverse) {
+    history.replaceState(null, '', '/');
+    reverse.open(requestedReverse);
+  } else if (!asked && reconstruction.pending()) reconstruction.open();
+  else if (!asked && reverse.pending()) reverse.open();
   if (asked) { history.replaceState(null, '', '/'); setTimeout(() => (asked === 'scan' ? openScan() : asked === 'new' ? openNew() : menuPick(asked === 'open' ? 'project' : asked === 'video' ? 'video' : 'folder', asked === 'open')), 400); }
   load();
 })();

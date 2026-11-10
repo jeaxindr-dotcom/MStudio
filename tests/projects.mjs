@@ -80,7 +80,7 @@ try {
   await until(`location.port !== '${HUB_PORT}' && window.__studio && document.querySelector('#v').readyState >= 2`, 90000);
   const st = await ev(`return __studio.state()`);
   check(st.proj && st.size[0] === 1920 && st.lanes.join('|') === 'Chapitres|V1 plans|V2 présentateur|A1 voix|Son', `studio: the montage tracks (${st.lanes.join(', ')})`);
-  check(await ev(`return document.querySelector('#bStage').classList.contains('off') && document.querySelector('#bSrc').classList.contains('off') && /que sa vidéo/.test(document.querySelector('#bStage .why').textContent) && document.querySelector('#kindTag').textContent.includes('AItelier')`), 'no live preview nor staging (the tools greyed, with the reason), the project tag in the header');
+  check(await ev(`return !document.querySelector('#bStage').classList.contains('off') && document.querySelector('#bSrc').classList.contains('off') && document.querySelector('#kindTag').textContent.includes('AItelier')`), 'video-only project: Scene can request adaptation while switching to live code is unavailable');
   await p.eval(`document.querySelector('#v').currentTime = 200.5 / 30; return 1`); await sleep(800);
   await p.eval(`document.querySelector('button[data-tab=queue]').click(); return 1`); await sleep(300);
   await p.key('n', 'KeyN', 'n'); await sleep(300);

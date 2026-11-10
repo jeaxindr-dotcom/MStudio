@@ -6,18 +6,38 @@
     for (const n of ['s9', 's11', 'acc', 'ntodo', 'nfixed', 'nok', 'head', 'lime']) C[n] = css('--' + n);
     try {
       META = await (await fetch('/api/meta')).json();
-      const data0Notes = META.newProject ? ((await (await fetch('/api/notes')).json()).notes ?? []).length : 0;
+      if (META.reverse) {
+        $('#reverseActions').hidden = false;
+        const edit = $('#reverseOpenEdit'), brief = $('#reverseAgentBrief');
+        edit.textContent = FR ? 'Modifier le montage Reverse' : 'Edit Reverse timeline';
+        edit.hidden = !META.hub;
+        edit.onclick = async () => {
+          if (!await flushNow()) return setSave(T('st.send.notSaved'),'err');
+          const url = new URL(META.hub); url.searchParams.set('reverse',META.episode); location.assign(url);
+        };
+        brief.textContent = FR ? 'Préparer une demande pour ce plan' : 'Prepare a request for this shot';
+        brief.onclick = () => {
+          const f = curFrame(), clip = clipsAt((f+.5)/FPS).find(({tr})=>tr.type === 'video');
+          const name = clip ? clip.c.label : META.title;
+          const text = FR
+            ? 'Reconstruis les éléments graphiques du plan « '+name+' » à l’image '+f+' du montage Reverse. Lis reverse.json et src/montage.json dans le projet. Examine la référence aux bornes du plan et à cette image. Sépare les titres, formes et images identifiables en calques React éditables, garde le son calé et compare le résultat avec la référence. Signale les fonds masqués qui nécessitent les sources originales.'
+            : 'Rebuild the graphics in shot “'+name+'” at edit frame '+f+'. Read reverse.json and src/montage.json in this project. Inspect the reference at the shot boundaries and at this frame. Recreate identifiable titles, shapes and images as editable React layers, keep the audio in sync and compare with the reference. Flag obscured backgrounds that need the original assets.';
+          const editor = $('#agentText');
+          if (!editor.value.includes(text)) editor.value = [editor.value.trim(),text].filter(Boolean).join('\n\n');
+          editor.dispatchEvent(new Event('input',{bubbles:true})); editor.focus();
+        };
+      }
       SNAP = META.snapshot; FPS = META.fps || 30; MAXQ = META.maxEdits || 0;
       PROJ = !!META.kind && META.kind !== 'brambleshire';
       if (META.size?.length === 2) { CW = META.size[0]; CH = META.size[1]; }
       if (PROJ) { document.body.classList.add('proj'); $('#kindTag').textContent = kindLabel(); }
-      if (META.newProject && !(data0Notes ?? 0)) tabL = 'agent';
       if (!META.features?.code) document.body.classList.add('nocode');
       if (!META.render) document.body.classList.add('novideo');
       markTools(); $('#bSound').title = TN('st.sound.btn');   // (« Rétablir le son », 01-preview.js)
       $('#bMicTip').textContent = TN('st.rail.mic', { key: window.Shortcuts?.show('dictate') || 'F2' });   // (the dictation, 17-dictate.js)
       $('#dictee .x').title = FR ? 'Échap : annuler' : 'Esc: cancel';
-      document.title = PROJ ? `Coulisses — ${META.title}` : `Coulisses · ${META.episode} — ${META.title}`;
+      const product = T('common.productName');
+      document.title = PROJ ? `${product} — ${META.title}` : `${product} · ${META.episode} — ${META.title}`;
       if (META.hub) { const l = $('#logo'); l.href = META.hub; l.title = T('st.start.home'); l.style.cursor = 'pointer'; $('#crumb').href = META.hub; $('#crumb').title = T('st.start.home'); }
       else { document.body.classList.add('nohub'); $('#bHome').classList.add('off'); $('#bHome').querySelector('.why').textContent = T('menu.why.noHub'); }
       $('#title').textContent = PROJ ? META.title : `${META.episode} · ${META.title}`;
@@ -46,7 +66,7 @@
       if (SNAP) { DUR = SNAP.frames / FPS; FRAMES = SNAP.frames; view = { a: 0, b: DUR }; }
       STATUS = { lots: [], agent: META.agent, code: META.code, timeline: {}, plans: META.plans ?? {} }; onStatus();
       restoreDrafts();   // (what was being typed before a reload of this tab)
-      buildLanes(); setTab(tabR); setTab(tabL); fitMedia(); resize(); renderAll(); updateHud();
+      buildLanes(); setTab(tabR, false); setTab(tabL, false); fitMedia(); resize(); renderAll(); updateHud();
       loadLive();
       setSave(notes.length ? T('st.start.loaded', { n: notes.length }) : T('st.start.ready'), 'ok');
       pollReplies();

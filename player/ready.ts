@@ -8,7 +8,7 @@ export function createReady(opts: {
   timeoutMs?: number;
   staleMs?: number;
 }) {
-  let buffering = false, loading = false, raf = 0, timer: any = 0, started = 0, reported = '', disposed = false, asleep = false;
+  let buffering = false, loading = false, raf = 0, timer: any = 0, started = 0, pendingSince = 0, reported = '', disposed = false, asleep = false;
   const timeout = opts.timeoutMs ?? 30000;
   // Une attente globale (delayRender sans propriétaire) jamais rendue par son producteur (ex. Stage.tsx démonté
   // avant la fin de son chargement) ne doit pas masquer l'image pour toujours : au-delà de staleMs elle est tenue
@@ -32,7 +32,7 @@ export function createReady(opts: {
     const resources = (window as any).__coulissesReadiness?.snapshot?.() ?? { activePending: 0, legacyPending: [] };
     const legacy: number[] = resources.legacyPending ?? [], fresh = freshLegacy(legacy);
     const extra = { activePending: resources.activePending ?? 0, legacyPending: fresh, staleLegacy: legacy.length - fresh.length };
-    const result = (state: string, reason: string | null) => ({ state, reason, verified: state === 'ready', ...extra });
+    const result = (state: string, reason: string | null, displayable = state === 'ready') => ({ state, reason, verified: state === 'ready', displayable, ...extra });
     if (buffering) return result('loading', 'buffering');
     if (extra.activePending) return result('loading', 'resources');
     const root = opts.root(); if (!root) return result('loading', 'root');
@@ -54,6 +54,7 @@ export function createReady(opts: {
     // producteur doit migrer vers useDelayRender/useBufferState. Ce signal ne crée
     // aucun delayPlayback et n'empêche donc pas une autre scène de jouer.
     if (extra.legacyPending.length) return result('unverified', 'unowned-render-handles');
+    if (extra.staleLegacy) return result('unverified', 'stale-unowned-render-handles', true);
     return result('ready', null);
   };
   const failure = (reason: string | null, expired = false) => new Error(expired
@@ -62,15 +63,15 @@ export function createReady(opts: {
   const sayError = (reason: string | null, expired = false) => {
     const key = `${expired}:${reason}`; if (reported === key) return;
     reported = key;
-    opts.emit('ready-error', { reason, error: { message: failure(reason, expired).message, where: 'préparation de l’image', stack: '' } });
+    opts.emit('ready-error', { reason, expired, error: { message: failure(reason, expired).message, where: 'préparation de l’image', stack: '' } });
   };
   const tick = () => {
     raf = 0; timer = 0; if (disposed || asleep) return;
-    const current = status(), pending = current.state !== 'ready', elapsed = performance.now() - started;
-    if (pending && !loading) { loading = true; opts.emit('loading'); }
+    const current = status(), pending = !current.displayable, elapsed = performance.now() - started;
+    if (pending && !loading) { pendingSince = performance.now(); loading = true; opts.emit('loading'); }
     if (!pending && loading) { loading = false; reported = ''; opts.emit('loaded'); }
     if (current.state === 'error') sayError(current.reason);
-    else if (pending && elapsed >= timeout) sayError(current.reason, true);
+    else if (pending && performance.now() - pendingSince >= timeout) sayError(current.reason, true);
     // Surveillance ralentie après le premier dessin : pas de scan de milliers
     // d'images à 60 Hz durant un chargement long, et aucune fausse notification.
     if (pending) timer = setTimeout(tick, elapsed < 300 ? 50 : 200);
@@ -88,7 +89,7 @@ export function createReady(opts: {
     const current = status(), now = performance.now();
     for (const waiter of [...waiters]) {
       if (!waiter.armed) continue;
-      if (current.state === 'ready') { waiters.delete(waiter); waiter.res(); }
+      if (current.displayable) { waiters.delete(waiter); waiter.res(); }
       else if (current.state === 'error' || now - waiter.t >= timeout) {
         waiters.delete(waiter); waiter.rej(failure(current.reason, current.state !== 'error'));
       }
@@ -104,7 +105,7 @@ export function createReady(opts: {
     suspend: () => { asleep = true; buffering = false; reported = ''; cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; loading = false; },
     setBuffering: (value: boolean) => { buffering = value; watch(); },
     isLoading: () => loading,
-    ready: () => status().state === 'ready',
+    ready: () => status().displayable,
     why: () => status().reason,
     status,
     when: () => new Promise<void>((res, rej) => {
