@@ -91,6 +91,7 @@ const stage: any = {
   selectParent: () => active.selectParent?.() ?? false,
   setMode: (m: any) => active.setMode(m),
   freeCamera: (want: boolean, pose?: any) => active.freeCamera(want, pose),
+  focusObject: (id: string) => active.focusObject?.(id) ?? false,
   setGuides: (show: boolean) => active.setGuides?.(show) ?? false,
   freePose: () => active.freePose?.() ?? null,
   resetCamera: () => active.resetCamera?.() ?? false,

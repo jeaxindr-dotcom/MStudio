@@ -33,6 +33,21 @@ async function open(revue,ready,lang='fr') {
   await page.until(ready,90000);
 }
 const click=selector=>page.eval('document.querySelector('+JSON.stringify(selector)+').click()');
+async function doubleClickRow(name) {
+  const [x, y] = await page.eval(`
+    const row=[...document.querySelectorAll('[data-sc-object]')].find(el=>el.textContent.trim()===${JSON.stringify(name)});
+    row.scrollIntoView({block:'center'});
+    const rect=row.getBoundingClientRect();
+    return [rect.left+rect.width/2,rect.top+rect.height/2];`);
+  // Two physical clicks at the SAME pixel. The first can rebuild the inspector.
+  for (const clickCount of [1,2]) {
+    for (const type of ['mousePressed','mouseReleased']) {
+      await page.send('Input.dispatchMouseEvent',{type,x,y,button:'left',buttons:type==='mousePressed'?1:0,clickCount});
+    }
+    if (clickCount===1) await sleep(80);
+  }
+}
+const distance = (a,b) => Math.hypot(...a.map((v,i)=>v-b[i]));
 const val=selector=>page.eval('return document.querySelector('+JSON.stringify(selector)+').value');
 const lots=revue=>fs.readdirSync(path.join(revue,'lots')).filter(n=>/^\d+\.json$/.test(n));
 function luminance(color) {
@@ -121,12 +136,14 @@ try {
   fs.writeFileSync(path.join(engine,'src','coulisses.tsx'),`import React from 'react';
     import { Canvas } from '@react-three/fiber';
     const Flat=()=> <div data-coulisses="title">Titre</div>;
-    const Deep=()=> <Canvas frameloop="demand" style={{width:320,height:180}} gl={{preserveDrawingBuffer:true}}>
+    const Deep=({orthographic=false})=> <Canvas orthographic={orthographic} frameloop="demand" style={{width:320,height:180}} gl={{preserveDrawingBuffer:true}}
+      onCreated={s=>{window.fixtureScene=s.scene;window.fixtureCamera=s.camera}}>
       <mesh name="Décor"><boxGeometry/><meshBasicMaterial color="red"/></mesh>
-      <group name="Héroïne" position={[0,0,-2]}><mesh><boxGeometry/><meshBasicMaterial color="blue"/></mesh></group>
+      <group name="Héroïne" position={[0,0,-2]}><mesh position={[.15,-.1,.2]}><boxGeometry/><meshBasicMaterial color="blue"/></mesh></group>
       <group name="editor-aids" visible={false}><gridHelper/><mesh name="editor-origin"><sphereGeometry/></mesh></group>
     </Canvas>;
-    export const compositions=[{id:'Flat',component:Flat},{id:'Deep',component:Deep}].map(c=>({...c,fps:24,width:320,height:180,durationInFrames:72}));`);
+    const Ortho=()=> <Deep orthographic/>;
+    export const compositions=[{id:'Flat',component:Flat},{id:'Deep',component:Deep},{id:'Ortho',component:Ortho}].map(c=>({...c,fps:24,width:320,height:180,durationInFrames:72}));`);
   fs.writeFileSync(path.join(engine,'src','coulisses.ts'),"export {compositions} from './coulisses.tsx';");
   fs.writeFileSync(path.join(engine,'src','coulisses-timeline.ts'),'export const timeline=()=>({fps:24,durationInFrames:72,pistes:[]});');
   fs.writeFileSync(path.join(engine,'src','index.ts'),"import {registerRoot,Composition} from 'remotion'; import React from 'react'; import {compositions} from './coulisses'; registerRoot(()=>React.createElement(React.Fragment,null,...compositions.map(c=>React.createElement(Composition,c))));");
@@ -137,8 +154,9 @@ try {
   await click('#sceneRequestKeep');await page.until("__studio.state().staging && __preview.stage.kind==='2d'");
   pass('Sur un vrai Player 2D, M propose le parallaxe en anglais puis ouvre la scène 2D au refus');
   await page.until("document.querySelector('[data-sc-object]')?.textContent.trim()==='title'");
-  await click('[data-sc-object]');
+  await doubleClickRow('title');
   await page.until("document.querySelector('[data-sc-object][aria-pressed=true]')?.textContent.trim()==='title'");
+  assert.equal(await page.eval("return document.querySelector('#stage').classList.contains('freecam')"), false);
   assert.equal(await page.eval("return __preview.stage.list().length"), 0);
   pass('La liste 2D sélectionne le bloc data-coulisses sans créer de décalage');
   await click('#sc-cam');
@@ -151,6 +169,49 @@ try {
   pass('Une composition Remotion générique avec Canvas 3D ouvre sa scène native sans proposition');
   await page.until("document.querySelectorAll('[data-sc-object]').length===2");
   assert.deepEqual(await page.eval("return [...document.querySelectorAll('[data-sc-object]')].map(b=>b.textContent.trim())"), ['Décor', 'Héroïne']);
+  const objectMatrix = () => page.frameEval('player.html', "const o=window.fixtureScene.getObjectByName('Héroïne');o.updateWorldMatrix(true,true);return o.children[0].matrixWorld.toArray()");
+  const initialMatrix=await objectMatrix(), shotCamera=await page.eval("return __preview.cameraPos()");
+  const stageShot=()=>page.eval("return __preview.stage.snapshot()");
+  const referenceShot=await stageShot();
+  await doubleClickRow('Héroïne');
+  await page.until("document.querySelector('#stage').classList.contains('freecam') && document.querySelector('[data-sc-object][aria-pressed=true]')?.textContent.trim()==='Héroïne'");
+  const pose=()=>page.eval("return __preview.stage.freePose()");
+  const focused=await pose();
+  assert.ok(distance(focused.target,[.15,-.1,-1.8])<1e-6,'Orbit targets the mesh centre in world coordinates');
+  const projected=()=>page.frameEval('player.html',`
+    const o=window.fixtureScene.getObjectByName('Héroïne').children[0], c=window.fixtureCamera;
+    const center=o.getWorldPosition(o.position.clone()).project(c);
+    const points=o.geometry.getAttribute('position');
+    let extent=0;
+    for(let n=0;n<points.count;n++){
+      const v=o.position.clone().fromBufferAttribute(points,n).applyMatrix4(o.matrixWorld).project(c);
+      extent=Math.max(extent,Math.abs(v.x),Math.abs(v.y));
+    }
+    return [Math.hypot(center.x,center.y),extent];`);
+  const [offCenter,extent]=await projected();
+  assert.ok(offCenter<1e-5 && extent>.15 && extent<1, 'Selected mesh is centered and fits inside the viewport');
+  const [mx,my]=await page.eval("const r=document.querySelector('#code').getBoundingClientRect();return [r.left+r.width*.6,r.top+r.height*.55]");
+  await page.mouse('mousePressed',mx,my,'middle');
+  await page.mouse('mouseMoved',mx+55,my+21,'middle');
+  await page.mouse('mouseReleased',mx+55,my+21,'middle');await sleep(150);
+  const rotated=await pose();
+  assert.ok(distance(rotated.p,focused.p)>.05);
+  assert.ok(distance(rotated.target,focused.target)<1e-6);
+  assert.ok(Math.abs(distance(rotated.p,rotated.target)-distance(focused.p,focused.target))<1e-6);
+  assert.ok((await projected())[0]<1e-5,'Object still centred after middle-drag');
+  assert.deepEqual(await objectMatrix(),initialMatrix);
+  assert.equal(await page.eval("return __preview.stage.list().length"),0);
+  assert.equal(await stageShot(),referenceShot,'Focus must preserve the shot camera for review snapshots');
+  await page.eval('await __preview.stage.freeCamera(false);await __preview.stage.freeCamera(true,'+JSON.stringify(rotated)+')');
+  assert.ok(distance((await pose()).target,rotated.target)<1e-6, 'Restoring the free pose retains the orbit pivot');
+  await doubleClickRow('Décor');
+  await page.until("document.querySelector('[data-sc-object][aria-pressed=true]')?.textContent.trim()==='Décor'");
+  await page.until("(await __preview.stage.freePose()).target.every(v=>Math.abs(v)<1e-6)");
+  await click('#sc-cam0');await sleep(100);
+  assert.deepEqual(await page.eval("return __preview.cameraPos()"),shotCamera);
+  await click('#sc-cam');
+  await page.until("!document.querySelector('#stage').classList.contains('freecam')");
+  pass('Le double-clic cadre le centre du volume 3D, conserve son pivot pendant l’orbite molette et permet de viser un autre objet puis revenir au plan');
   await page.eval("document.querySelector('#sc-object-search').focus()"); await page.type('heroine');
   await page.until("document.querySelectorAll('[data-sc-object]').length===1");
   await click('[data-sc-object]');
@@ -224,6 +285,18 @@ try {
   await sleep(150);
   assert.deepEqual(await camera(), initial);
   pass('Caméra libre en pause : glisser à gauche est neutre, glisser molette enfoncée tourne sur les deux axes, le bouton droit translate et la molette zoome');
+  await open(project('Ortho'),"window.__preview?.frameReady() && __preview.stage.scene3d");
+  await click('#bStage');await page.until("__studio.state().staging && document.querySelectorAll('[data-sc-object]').length===2");
+  const lens=()=>page.frameEval('player.html',"const c=window.fixtureCamera;return {zoom:c.zoom,near:c.near,far:c.far,p:c.position.toArray()}");
+  const orthoLens=await lens(), orthoShot=await stageShot();
+  await doubleClickRow('Héroïne');
+  await page.until("document.querySelector('#stage').classList.contains('freecam')");
+  assert.ok((await lens()).zoom>orthoLens.zoom*2);
+  const [orthoCenter,orthoExtent]=await projected();
+  assert.ok(orthoCenter<1e-5 && orthoExtent>.15 && orthoExtent<1);
+  assert.equal(await stageShot(),orthoShot);
+  await click('#sc-cam0');await sleep(100);assert.deepEqual(await lens(),orthoLens);
+  pass('La caméra orthographique cadre aussi le volume, conserve la capture de revue et retrouve son zoom initial');
   console.log(ok+' ok, 0 ko');
 } catch(e) {console.error(e,page?.logs.slice(-4));console.log(ok+' ok, 1 ko');process.exitCode=1;}
 finally {

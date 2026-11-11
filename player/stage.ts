@@ -12,6 +12,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { stageModeKey, toParent } from './keys';
 import { sceneTargets } from './stage-elements';
 import { createGuides } from './stage-guides';
+import { fitObject } from './stage-focus';
 
 type V3 = [number, number, number];
 export interface Delta { p: V3; r: V3; s: number }          // position (world units), rotation (radians), uniform scale factor
@@ -30,6 +31,33 @@ interface Deps {
 export const ZERO: Delta = { p: [0, 0, 0], r: [0, 0, 0], s: 1 };
 const isZero = (d: Delta) => d.p.every((v) => Math.abs(v) < 1e-6) && d.r.every((v) => Math.abs(v) < 1e-6) && Math.abs(d.s - 1) < 1e-6;
 
+type ViewCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
+type CameraView = { p: THREE.Vector3; q: THREE.Quaternion; zoom: number; near: number; far: number; centered: boolean };
+type SavedView = { p: number[]; q: number[]; target?: number[]; zoom?: number; near?: number; far?: number; centered?: boolean };
+function readView(cam: ViewCamera, centered = false): CameraView {
+  return {p: cam.position.clone(), q: cam.quaternion.clone(), zoom: cam.zoom, near: cam.near, far: cam.far, centered};
+}
+function applyView(cam: ViewCamera, view: CameraView, restoreProjection = false) {
+  cam.position.copy(view.p); cam.quaternion.copy(view.q);
+  const changed = cam.zoom !== view.zoom || cam.near !== view.near || cam.far !== view.far;
+  cam.zoom = view.zoom; cam.near = view.near; cam.far = view.far;
+  if (changed || restoreProjection) cam.updateProjectionMatrix();
+  // Shot cameras may have an off-centre lens or view offset. While focused,
+  // retain the lens scale and put the orbit target at the centre of the preview.
+  if (view.centered) {
+    const xy = (cam as THREE.PerspectiveCamera).isPerspectiveCamera ? 8 : 12;
+    const projection = cam.projectionMatrix;
+    if (projection.elements[xy] || projection.elements[xy + 1]) {
+      projection.elements[xy] = 0; projection.elements[xy + 1] = 0;
+      cam.projectionMatrixInverse.copy(projection).invert();
+    }
+  }
+  cam.updateMatrixWorld();
+}
+function defaultTarget(view: CameraView) {
+  return new THREE.Vector3(0, 0, -8).applyQuaternion(view.q).add(view.p);
+}
+
 export function createStage(D: Deps) {
   const edits = new Map<string, Edit>();
   const listeners = new Set<(ev: any) => void>();
@@ -37,10 +65,15 @@ export function createStage(D: Deps) {
   let on = false, st: any = null, canvas: HTMLCanvasElement | null = null;
   let tc: TransformControls | null = null, helper: THREE.Object3D | null = null, orbit: OrbitControls | null = null, box: THREE.BoxHelper | null = null;
   let selected: string | null = null, mode: 'translate' | 'rotate' | 'scale' = 'translate';
-  let freeCam: { p: THREE.Vector3; q: THREE.Quaternion } | null = null, scenePose: { p: THREE.Vector3; q: THREE.Quaternion } | null = null, lastFree: THREE.Vector3 | null = null;
+  let freeCam: CameraView | null = null, scenePose: CameraView | null = null, lastFree: CameraView | null = null;
   let capture: ((url: string) => void) | null = null;
   let guides: ReturnType<typeof createGuides> | null = null, guidesWanted=true;
-  const syncGuides=()=>guides?.update(st.camera,orbit?.target,!!freeCam,guidesWanted,!!capture);
+  const worldTarget = () => {
+    if (!orbit) return undefined;
+    return st.camera.parent ? st.camera.parent.localToWorld(orbit.target.clone()) : orbit.target;
+  };
+  const localTarget = (world: THREE.Vector3): THREE.Vector3 => st.camera.parent ? st.camera.parent.worldToLocal(world.clone()) : world;
+  const syncGuides=()=>guides?.update(st.camera,worldTarget(),!!freeCam,guidesWanted,!!capture);
 
   const mainRoot = () => D.roots().find((r) => r?.store?.getState?.().scene) ?? null;
   // the object to move for a hit mesh: the host just below the first keyed component, or a keyed host group itself
@@ -204,10 +237,17 @@ export function createStage(D: Deps) {
     const r = mainRoot(); const cam = r?.store.getState().camera as THREE.PerspectiveCamera | undefined;
     if (cam) {
       // the shot's camera, as the engine set it (anything that is not our free pose)
-      if (!lastFree || !cam.position.equals(lastFree)) scenePose = { p: cam.position.clone(), q: cam.quaternion.clone() };
+      if (!lastFree || !scenePose) scenePose = readView(cam);
+      else {
+        if (!cam.position.equals(lastFree.p)) scenePose.p.copy(cam.position);
+        if (!cam.quaternion.equals(lastFree.q)) scenePose.q.copy(cam.quaternion);
+        if (cam.zoom !== lastFree.zoom) scenePose.zoom = cam.zoom;
+        if (cam.near !== lastFree.near) scenePose.near = cam.near;
+        if (cam.far !== lastFree.far) scenePose.far = cam.far;
+      }
       const pose = capture ? scenePose : freeCam;
-      if (pose) { cam.position.copy(pose.p); cam.quaternion.copy(pose.q); cam.updateMatrixWorld(); }
-      lastFree = pose && !capture ? cam.position.clone() : null;
+      if (pose) applyView(cam, pose, !!(capture && lastFree?.centered));
+      lastFree = capture ? null : freeCam;
     }
     if (helper) helper.visible = !capture && !!selected;
     syncGuides();
@@ -356,11 +396,44 @@ export function createStage(D: Deps) {
   }
   function restoreShotCamera() {
     if (!scenePose) return;
-    st.camera.position.copy(scenePose.p);
-    st.camera.quaternion.copy(scenePose.q);
-    st.camera.updateMatrixWorld();
+    applyView(st.camera, scenePose, true);
     lastFree = null;
     redrawCamera();
+  }
+  // OrbitControls calls lookAt(target) in the control camera's own world. A rig
+  // camera therefore needs an unparented control camera in rig-local coordinates.
+  function syncControlCamera(control: ViewCamera, cam: ViewCamera) {
+    if (control === cam) return;
+    control.position.copy(cam.position); control.quaternion.copy(cam.quaternion); control.up.copy(cam.up);
+    control.zoom = cam.zoom; control.near = cam.near; control.far = cam.far;
+    if ('fov' in control && 'fov' in cam) {
+      control.fov = cam.fov; control.aspect = cam.aspect;
+    } else if ('left' in control && 'left' in cam) {
+      control.left = cam.left; control.right = cam.right; control.top = cam.top; control.bottom = cam.bottom;
+    }
+    control.projectionMatrix.copy(cam.projectionMatrix);
+    control.projectionMatrixInverse.copy(cam.projectionMatrixInverse);
+    control.updateMatrixWorld();
+  }
+  function enterFreeView(view: CameraView, target: THREE.Vector3) {
+    if (!freeCam) scenePose = readView(st.camera);
+    applyView(st.camera, view, !!freeCam?.centered && !view.centered);
+    freeCam = view; lastFree = view;
+    syncControlCamera(orbit!.object as ViewCamera, st.camera);
+    orbit!.target.copy(target); orbit!.enabled = true;
+    redrawCamera();
+  }
+  function focusObject(id: string) {
+    if (!on || !orbit || !st || !id) return false;
+    const object = resolve(id);
+    if (!object) return false;
+    const fit = fitObject(st.camera, object);
+    if (!fit) return false;
+    if (selected !== id) select(id);
+    const view = readView(st.camera, true);
+    view.p.copy(fit.position); view.zoom = fit.zoom; view.near = fit.near; view.far = fit.far;
+    enterFreeView(view, localTarget(fit.target));
+    return true;
   }
   function enable(want: boolean) {
     if (want === on) return on;
@@ -374,15 +447,18 @@ export function createStage(D: Deps) {
       helper = (tc as any).getHelper ? (tc as any).getHelper() : (tc as any); st.scene.add(helper);
       // OrbitControls aims the camera at its target as soon as it is created: the shot's pose is put back at once
       const pose0 = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
-      orbit = new OrbitControls(st.camera, cv); orbit.enableDamping = false;
+      const control = !st.camera.parent ? st.camera : st.camera.isPerspectiveCamera ? new THREE.PerspectiveCamera() : new THREE.OrthographicCamera();
+      syncControlCamera(control, st.camera);
+      orbit = new OrbitControls(control, cv); orbit.enableDamping = false;
       orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
       st.camera.position.copy(pose0.p); st.camera.quaternion.copy(pose0.q); st.camera.updateMatrixWorld();
       const target = new THREE.Vector3(0, 0, -1).applyQuaternion(st.camera.quaternion).multiplyScalar(8).add(st.camera.position);
       orbit.target.copy(target); orbit.enabled = false;
       orbit.addEventListener('change', () => {
         if (!orbit!.enabled) return;
-        freeCam = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
-        lastFree = freeCam.p.clone();
+        freeCam = readView(control, freeCam?.centered);
+        if (control !== st.camera) applyView(st.camera, freeCam);
+        lastFree = freeCam;
         redrawCamera();
       });
       tc.addEventListener('dragging-changed', (ev: any) => { if (orbit) orbit.enabled = !ev.value && !!freeCam; });
@@ -431,23 +507,26 @@ export function createStage(D: Deps) {
     edits.delete(id); if (selected === id) select(null);
   }
   return {
-    enable, select, setMode, setDelta, reset, elements,
+    enable, select, focusObject, setMode, setDelta, reset, elements,
     setGuides: (show:boolean) => {guidesWanted=!!show; if(on)redrawCamera(); return guidesWanted;},
     on: (fn: (ev: any) => void) => { listeners.add(fn); return () => listeners.delete(fn); },
     list: () => [...edits.values()].filter((e) => !isZero(e.delta) || cutouts.has(e.id)).map((e) => info(e.id)),
     info, get selected() { return selected; }, get enabled() { return on; },
     // « Médias »: an image as cardboard, where it was dropped (at: a point of the frame), or again at its place (base)
     addCutout, has: (id: string) => cutouts.has(id) || edits.has(id),
-    // where the free camera is ({ p, q }), null when off: a new version of the preview puts it back there
-    freePose: () => (freeCam ? { p: freeCam.p.toArray(), q: freeCam.q.toArray() } : null),
-    freeCamera: (want: boolean, pose?: { p: number[]; q: number[] } | null) => {
+    // Restoring the view also restores its pivot for the next middle-button drag.
+    freePose: () => (freeCam && orbit ? { p: freeCam.p.toArray(), q: freeCam.q.toArray(), target: worldTarget()!.toArray(),
+      zoom: freeCam.zoom, near: freeCam.near, far: freeCam.far, centered: freeCam.centered } : null),
+    freeCamera: (want: boolean, pose?: SavedView | null) => {
       if (!orbit || !st) return false;
-      // (a pose given: the camera goes there at the next frame — the shot's own pose is still read first, for « Réinitialiser »)
       if (want) {
-        if (!freeCam) scenePose = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
-        freeCam = pose ? { p: new THREE.Vector3().fromArray(pose.p), q: new THREE.Quaternion().fromArray(pose.q) } : { p: st.camera.position.clone(), q: st.camera.quaternion.clone() };
-        const t = new THREE.Vector3(0, 0, -1).applyQuaternion(freeCam.q).multiplyScalar(8).add(freeCam.p); orbit.target.copy(t); orbit.enabled = true;
-        redrawCamera();
+        if (!pose && freeCam) return true;
+        const view = readView(st.camera, !!pose?.centered);
+        if (pose) {
+          view.p.fromArray(pose.p); view.q.fromArray(pose.q);
+          view.zoom = pose.zoom ?? view.zoom; view.near = pose.near ?? view.near; view.far = pose.far ?? view.far;
+        }
+        enterFreeView(view, pose?.target ? localTarget(new THREE.Vector3().fromArray(pose.target)) : defaultTarget(view));
       }
       else { freeCam = null; orbit.enabled = false; restoreShotCamera(); }
       return !!freeCam;
@@ -458,7 +537,7 @@ export function createStage(D: Deps) {
       const was = !!freeCam;
       freeCam = null; orbit.enabled = false;
       restoreShotCamera();
-      if (was) { freeCam = { p: st.camera.position.clone(), q: st.camera.quaternion.clone() }; const t = new THREE.Vector3(0, 0, -1).applyQuaternion(st.camera.quaternion).multiplyScalar(8).add(st.camera.position); orbit.target.copy(t); orbit.enabled = true; }
+      if (was) { const view = readView(st.camera); enterFreeView(view, defaultTarget(view)); }
       return was;
     },
     // the 3D image as the shot's camera sees it, with the offsets, without gizmo (the after image sent to Claude)
@@ -468,7 +547,12 @@ export function createStage(D: Deps) {
       const e = edits.get(id), o = e?.obj ?? resolve(id), root = mainRoot(); if (!o || !root) return null;
       const cam = root.store.getState().camera as THREE.Camera, c = root.store.getState().gl.domElement as HTMLCanvasElement;
       const b = new THREE.Box3().setFromObject(o), v = b.getCenter(new THREE.Vector3());
-      if (scenePose && freeCam) { const tmp = (cam as any).clone(); tmp.position.copy(scenePose.p); tmp.quaternion.copy(scenePose.q); tmp.updateMatrixWorld(); v.project(tmp); } else v.project(cam);
+      if (scenePose && freeCam) {
+        const tmp = (cam as ViewCamera).clone();
+        applyView(tmp, scenePose, true);
+        if (cam.parent) tmp.matrixWorldInverse.copy(tmp.matrixWorld.premultiply(cam.parent.matrixWorld)).invert();
+        v.project(tmp);
+      } else v.project(cam);
       const FW = D.W ?? 1920, FH = D.H ?? 1080;
       const stage = document.getElementById('stage')!.getBoundingClientRect(), r = c.getBoundingClientRect(), k = Math.min(stage.width / FW, stage.height / FH);
       const px = r.left + (v.x + 1) / 2 * r.width, py = r.top + (1 - v.y) / 2 * r.height;

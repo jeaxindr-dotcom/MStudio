@@ -131,6 +131,7 @@
       selectParent: () => call('stage.selectParent'),
       setMode: (m) => send('stage.setMode', m),
       freeCamera: (want, pose) => call('stage.freeCamera', want, pose ?? null),
+      focusObject: (id) => call('stage.focusObject', id),
       freePose: () => call('stage.freePose'),
       resetCamera: () => call('stage.resetCamera'),
       setGuides: (show) => call('stage.setGuides',!!show),

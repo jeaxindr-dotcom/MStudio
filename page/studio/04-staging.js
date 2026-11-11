@@ -186,7 +186,7 @@
   }
   function renderScene() {
     markSceneBar(); if (staging) markStageBar(); else $('#stage').classList.remove('freecam');
-    const box = $('#scene'); if (!box) return;
+    let box = $('#scene'); if (!box) return;
     const a = document.activeElement; if (a && box.contains(a) && /^(INPUT|SELECT)$/.test(a.tagName) && !renderScene.force) return;   // never under the user's typing
     if (window.CoulissesScene?.render(box)) return;
     if (stageWhy()) { box.innerHTML = `<div class="box"><div class="ttl">${T('st.scene.introTitle')}</div><p class="muted">${esc(stageWhy())}</p></div>`; return; }
@@ -196,6 +196,10 @@
         <div class="row"><button class="primary" id="sc-on">${ic('move')}${T('st.scene.enable')}</button></div></div>` + listHtml();
       $('#sc-on').onclick = () => window.CoulissesScene.open(true); bindList(); return;
     }
+    // Keep the list mounted while the inspector changes height or redraws after the first click.
+    if (!box.querySelector('[data-sc-inspector]')) box.innerHTML = '<div data-sc-inspector></div><div data-sc-elements-slot></div><div data-sc-offsets></div>';
+    box.querySelector('[data-sc-offsets]').innerHTML=listHtml();
+    box=box.querySelector('[data-sc-inspector]');
     if (D2()) return renderScene2d(box);
     const sel = stSel, t = sel ? stageName(sel.id, sel) : null, d = sel?.delta ?? { p: [0, 0, 0], r: [0, 0, 0], s: 1 }, sc = scopeOf();
     const num = (k, val, step) => `<input type="number" id="sc-${k}" step="${step}" value="${val}">`;
@@ -221,7 +225,7 @@
       ${freeCamOn ? `<div class="row"><button class="soft ${gridWanted?'on':''}" id="sc-grid" aria-pressed="${gridWanted}" title="${esc(T('st.scene.gridTip'))}">${ic('grid3d')}${T('st.scene.grid')}</button></div>` : ''}
       ${freeCamOn ? howRows([['st.how.click', 'st.cam.selectT'], ['st.cam.orbit', 'st.cam.dragT'], ['st.cam.right', 'st.cam.rightT'], ['st.cam.wheel', 'st.cam.wheelT']]) + `<p class="note2">${T('st.scene.camNote')}</p>`
         : `<p class="note2">${T('st.scene.camWhy', { key: esc(SC.show('freeCam')) })}</p>`}
-    </div>` + listHtml();
+    </div>`;
     box.querySelectorAll('.modes button').forEach((b) => b.onclick = () => { stMode = b.dataset.m; SP.stage.setMode(stMode); renderScene(); });
     for (const k of ['x', 'y', 'z', 'rx', 'ry', 'rz', 's']) $('#sc-' + k)?.addEventListener('change', () => { const sc2 = scopeOf(); SP.stage.setDelta(stSel.id, readFields(), sc2.from, sc2.to); });
     $('#sc-scope')?.addEventListener('change', changeScope);
@@ -253,7 +257,7 @@
     <div class="box">
       <div class="camst"><span class="dot ${cam ? 'free' : ''}"></span><span>${T(cam ? 'st.s2.camChosen' : 'st.s2.camCode')}</span></div>
       <div class="row"><button class="soft ${cam ? 'on' : ''}" id="sc-cam">${ic('camera')}${T(cam ? 'st.s2.camOn' : 'st.s2.cam')}</button><button class="soft" id="sc-cam0" title="${esc(T('st.s2.camResetTitle'))}">${ic('undo')}${T('st.scene.camReset')}</button></div>
-    </div>` + listHtml();
+    </div>`;
     const fields = () => { const v = (k) => +($('#sc-' + k)?.value || 0); return { p: [v('x'), v('y'), 0], r: [0, 0, rad(v('rz'))], s: (v('s') || 100) / 100 }; };
     box.querySelectorAll('.modes button').forEach((b) => b.onclick = () => { stMode = b.dataset.m; SP.stage.setMode(stMode); renderScene(); });
     for (const k of ['x', 'y', 'rz', 's']) $('#sc-' + k)?.addEventListener('change', () => { const sc2 = scopeOf(); SP.stage.setDelta(stSel.id, fields(), sc2.from, sc2.to); });
@@ -269,14 +273,13 @@
   }
   // the objects moved and not yet in the queue, and the offsets waiting in the queue
   function listHtml() {
-    const elements = staging ? '<div data-sc-elements-slot></div>' : '';
     const live = SP?.stage ? SP.stage.list() : [], queued = drafts().filter((n) => n.stage);
-    if (!live.length && !queued.length) return elements;
+    if (!live.length && !queued.length) return '';
     const rows = [
       ...queued.map((n) => `<div class="item" data-note="${n.id}">${ic('send')}<span>${esc(n.stage.name ?? humanTarget({ names: [n.stage.id] }).name)}</span><span class="d">${T('st.scene.queued')}</span></div>`),
       ...live.filter((x) => !queued.some((n) => n.stage.id === x.id)).map((x) => `<div class="item" data-id="${esc(x.id)}">${ic('move')}<span>${esc(stageName(x.id, x).name)}</span><span class="d">${esc(x.cutout ? T('st.scene.cutNew') : x.dim === '2d' ? deltaWords2d(x.delta, x.id === '@camera') : deltaWords(x.delta))}</span></div>`),
     ];
-    return elements + `<h3 style="margin:14px 6px 4px;font:600 11px var(--font-d);text-transform:uppercase;letter-spacing:.1em;color:var(--s9)">${T('st.scene.offsets')}</h3>${rows.join('')}`;
+    return `<h3 style="margin:14px 6px 4px;font:600 11px var(--font-d);text-transform:uppercase;letter-spacing:.1em;color:var(--s9)">${T('st.scene.offsets')}</h3>${rows.join('')}`;
   }
   function bindList() {
     sceneElements.bind();
