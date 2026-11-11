@@ -471,15 +471,23 @@
     const record = updateDraft;
     if (!record) return;
     const draft = draftSnapshot(), text = JSON.stringify(draft);
-    if (text === record.sent && (!leaving || text === record.saved)) return;
+    if (text === record.sent && (!leaving || text === record.saved)) return record.writing || true;
     const seq = ++record.seq;
     const command = {action:'save', id:record.id, seq, draft};
     const keepalive = leaving && new Blob([JSON.stringify(command)]).size < 60000;
     if (leaving && !keepalive && event) { event.preventDefault(); event.returnValue = ''; }
     record.sent = text;
-    draftRequest(command, keepalive).then(result => {
+    record.writing = draftRequest(command, keepalive).then(result => {
       if (seq === record.seq && result?.applied) record.saved = text;
-    }).catch(() => { if (seq === record.seq) record.sent = undefined; });
+      return !!result?.applied;
+    }).catch(() => false).then(ok => {
+      if (seq === record.seq) {
+        record.writing = null;
+        if (!ok) record.sent = undefined;
+      }
+      return ok;
+    });
+    return record.writing;
   }
   async function restoreDrafts() {
     try {
@@ -504,11 +512,26 @@
     clearTimeout(typingTimer); typingTimer = setTimeout(() => checkpointUpdateDraft(false), 120);
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) checkpointUpdateDraft(true); });
-  window.MStudioBeforeUpdate = async () => {
+  let preparingUpdate = null;
+  async function prepareUpdate() {
     if ((dirty || saving) && !(await flushNow())) throw new Error(T('st.save.failed'));
-    const draft = draftSnapshot();
-    const record = await draftRequest({action:'begin', draft});
-    keepDrafts(); startUpdateDraft({...record, draft});
+    if (!updateDraft) {
+      const draft = draftSnapshot();
+      const record = await draftRequest({action:'begin', draft});
+      startUpdateDraft({...record, draft});
+    }
+    keepDrafts();
+    if (!await checkpointUpdateDraft(false)) throw new Error(T('common.appUpdate.storeDrafts'));
+    return true;
+  }
+  // Both the dialog and the desktop host can prepare the same open project.
+  window.MStudioBeforeUpdate = (restarting = true) => {
+    if (restarting && $('#pop')?.getClientRects().length) {
+      const message = T('common.appUpdate.error.open-annotation');
+      setSave(message, 'err');
+      throw Object.assign(new Error(message), {code:'open-annotation'});
+    }
+    return preparingUpdate ??= prepareUpdate().finally(() => { preparingUpdate = null; });
   };
   window.MStudioUpdateRefused = async () => {
     const record = updateDraft;

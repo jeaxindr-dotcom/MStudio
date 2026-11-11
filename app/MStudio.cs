@@ -20,8 +20,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("MStudio")]
 [assembly: AssemblyProduct("MStudio")]
 [assembly: AssemblyDescription("Montage et revue de projets Remotion")]
-[assembly: AssemblyVersion("0.2.4.0")]
-[assembly: AssemblyFileVersion("0.2.4.0")]
+[assembly: AssemblyVersion("0.2.5.0")]
+[assembly: AssemblyFileVersion("0.2.5.0")]
 [assembly: Guid("1832da9f-bb81-469a-8b74-87bb72e405a6")]
 
 static class MStudioProgram
@@ -51,11 +51,14 @@ static class MStudioProgram
             }
             SetCurrentProcessExplicitAppUserModelID("MStudio.Desktop");
             CoreWebView2Environment.SetLoaderDllFolderPath(InstallDir);
-            using (var running = new Mutex(false, @"Local\MStudio.Desktop.Running"))
-            using (var hub = new DesktopHub())
+            using (var running = MStudioUpdate.BeginDesktop(DataDir, InstallDir, args))
             {
-                var app = new DesktopApplication(hub);
-                app.Run(args);
+                if (running == null) return 0;
+                using (var hub = new DesktopHub())
+                {
+                    var app = new DesktopApplication(hub);
+                    app.Run(args);
+                }
             }
             return 0;
         }
@@ -78,6 +81,10 @@ static class MStudioProgram
 sealed class DesktopApplication : WindowsFormsApplicationBase
 {
     readonly DesktopHub hub;
+    EventWaitHandle closeForUpdate;
+    RegisteredWaitHandle updateListener;
+    Control dispatcher;
+    bool closingForUpdate;
 
     public DesktopApplication(DesktopHub hub)
     {
@@ -91,12 +98,47 @@ sealed class DesktopApplication : WindowsFormsApplicationBase
     {
         hub.Start();
         MainForm = new StudioWindow(hub.Address(CommandLineArgs));
+        dispatcher = new Control();
+        dispatcher.CreateControl();
+        closeForUpdate = new EventWaitHandle(false, EventResetMode.AutoReset, MStudioUpdate.CloseEvent);
+        updateListener = ThreadPool.RegisterWaitForSingleObject(closeForUpdate, delegate {
+            try { dispatcher.BeginInvoke(new Action(CloseForUpdate)); } catch (InvalidOperationException) { }
+        }, null, Timeout.Infinite, false);
+    }
+
+    async void CloseForUpdate()
+    {
+        if (closingForUpdate || !MStudioUpdate.AssistantRunning()) return;
+        closingForUpdate = true;
+        var windows = Application.OpenForms.OfType<StudioWindow>().Where(w => !w.IsDisposed).ToArray();
+        bool ready = false;
+        try
+        {
+            ready = await MStudioUpdate.SaveAndCloseWindows(windows, MStudioUpdate.AssistantRunning);
+        }
+        catch (Exception error) { MStudioProgram.Log(error.ToString()); }
+        if (!ready)
+        {
+            EventWaitHandle refused;
+            if (EventWaitHandle.TryOpenExisting(MStudioUpdate.RefusedEvent, out refused))
+                using (refused) refused.Set();
+            closingForUpdate = false;
+        }
+    }
+
+    protected override void OnShutdown()
+    {
+        if (updateListener != null) updateListener.Unregister(null);
+        if (closeForUpdate != null) closeForUpdate.Dispose();
+        if (dispatcher != null) dispatcher.Dispose();
+        base.OnShutdown();
     }
 
     // A double click activates the existing window. Opening another file keeps the
     // current edit available in its own window and reuses the same project library.
     protected override void OnStartupNextInstance(StartupNextInstanceEventArgs e)
     {
+        if (closingForUpdate || MStudioUpdate.AssistantRunning()) { e.BringToForeground = false; return; }
         if (e.CommandLine.Count > 0)
         {
             var next = new StudioWindow(hub.Address(e.CommandLine));
@@ -149,6 +191,7 @@ sealed class DesktopHub : IDisposable
         start.WorkingDirectory = dir;
         start.EnvironmentVariables["PATH"] = runtime + ";" + Environment.GetEnvironmentVariable("PATH");
         start.EnvironmentVariables["MSTUDIO_APP"] = "1";
+        start.EnvironmentVariables["MSTUDIO_UPDATE_PROTOCOL"] = "2";
         start.EnvironmentVariables["MSTUDIO_DATA_DIR"] = data;
         start.EnvironmentVariables["COULISSES_SETTINGS"] = Path.Combine(data, "settings.json");
         start.EnvironmentVariables["STUDIO_PROJECTS"] = Path.Combine(data, "projets.json");
@@ -254,7 +297,7 @@ sealed class DesktopHub : IDisposable
     }
 }
 
-sealed class StudioWindow : Form
+sealed class StudioWindow : Form, IUpdateWindow
 {
     readonly Uri home;
     WebView2 view;
@@ -300,6 +343,7 @@ sealed class StudioWindow : Form
             };
             core.NewWindowRequested += delegate(object _, CoreWebView2NewWindowRequestedEventArgs e) {
                 e.Handled = true;
+                if (MStudioUpdate.AssistantRunning()) return;
                 Uri destination;
                 if (!e.IsUserInitiated || !Uri.TryCreate(e.Uri, UriKind.Absolute, out destination)) return;
                 if (LocalPage(destination)) new StudioWindow(destination).Show();
@@ -356,6 +400,37 @@ sealed class StudioWindow : Form
         fallback.Exited += delegate { if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(Close)); };
         if (fallback.HasExited) Close();
         return true;
+    }
+
+    public async Task<bool> SaveForUpdate()
+    {
+        // A fallback browser has its own windows and unsaved work. Never force
+        // them closed when the desktop cannot request an acknowledged save.
+        if (fallback != null && !fallback.HasExited) return false;
+        if (IsDisposed || view == null || view.CoreWebView2 == null || view.Source == null) return true;
+        var core = view.CoreWebView2;
+        string page = core.Source, nonce = "mstudio-update-" + Guid.NewGuid().ToString("N");
+        var result = new TaskCompletionSource<bool>();
+        EventHandler<CoreWebView2WebMessageReceivedEventArgs> receive = delegate(object sender, CoreWebView2WebMessageReceivedEventArgs e) {
+            if (e.Source != page) return;
+            string reply;
+            try { reply = e.TryGetWebMessageAsString(); } catch (ArgumentException) { return; }
+            if (reply == nonce + ":ok" || reply == nonce + ":failed") result.TrySetResult(reply == nonce + ":ok");
+        };
+        core.WebMessageReceived += receive;
+        try
+        {
+            // ExecuteScriptAsync does not await JavaScript promises. The page
+            // acknowledges only after the actual save and draft writes finish.
+            var timeout = Task.Delay(15000);
+            var dispatch = core.ExecuteScriptAsync("(async()=>{let ok=false;try{" +
+                "if(typeof window.MStudioBeforeUpdate==='function') await window.MStudioBeforeUpdate();" +
+                "ok=true;}finally{chrome.webview.postMessage('" + nonce + ":'+(ok?'ok':'failed'));}})().catch(()=>{})");
+            if (await Task.WhenAny(dispatch, timeout) != dispatch) return false;
+            await dispatch;
+            return await Task.WhenAny(result.Task, timeout) == result.Task && result.Task.Result;
+        }
+        finally { if (!IsDisposed) core.WebMessageReceived -= receive; }
     }
 
     protected override void Dispose(bool disposing)

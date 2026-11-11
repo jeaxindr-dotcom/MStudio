@@ -4,9 +4,11 @@ import http from 'node:http';
 import {once} from 'node:events';
 import {createUpdateController, relayUpdate, updateAction, updateRequestStatus} from '../lib/app-update-api.mjs';
 
-test('The editor and the library expose only the four local update actions', () => {
+test('The editor and the library expose the supported local update actions', () => {
   const req = {method:'POST', headers:{host:'127.0.0.1:4510',origin:'http://127.0.0.1:4510','content-type':'application/json'}};
   assert.equal(updateAction('/api/app-update/check'), 'check');
+  assert.equal(updateAction('/api/app-update/defer'), 'defer');
+  assert.equal(updateAction('/api/app-update/cancel'), 'cancel');
   assert.equal(updateAction('/api/app-update/run'), undefined);
   assert.equal(updateRequestStatus(req, 'install'), 200);
   assert.equal(updateRequestStatus(req, 'state'), 405);
@@ -37,7 +39,8 @@ function fixture() {
     updates:{state:() => base,check:async () => {data.checked++; return base;},verifiedInstaller:async () => file},
     installation:() => data.receipt,
     checkIdle:async () => {if (data.busy) throw Error('render active');},
-    schedule:async (value,id) => {assert.equal(value,file); data.attempts++; data.id=id; data.receipt={status:'installing',version:value.version};},
+    schedule:async (value,id,action) => {assert.equal(value,file); data.attempts++; data.id=id; data.receipt={status:action==='defer'?'scheduled':'installing',version:value.version};},
+    cancel:async () => {data.receipt=null;},
   });
   return {controller,data};
 }
@@ -51,6 +54,19 @@ test('An active render postpones installation while leaving the verified downloa
   assert.equal((await controller.run('install','E02')).status,'installing'); assert.equal(data.attempts,1);
 });
 
+test('A deferred install survives a check, can be cancelled and can be promoted to an immediate restart', async () => {
+  const {controller,data} = fixture(); data.busy=true;
+  assert.equal((await controller.run('defer','E01')).status,'scheduled');
+  assert.equal((await controller.run('check')).status,'scheduled'); assert.equal(data.checked,0);
+  await assert.rejects(controller.run('install','E01'),/render active/);
+  assert.equal((await controller.run('cancel')).status,'ready');
+  await Promise.all([controller.run('defer','E02'),controller.run('cancel')]);
+  assert.equal((await controller.run('state')).status,'ready');
+  data.busy=false;
+  await Promise.all([controller.run('defer','E02'),controller.run('install','E02')]);
+  assert.equal((await controller.run('cancel')).status,'installing'); assert.equal(data.id,'E02');
+});
+
 test('A cancelled installation is visible after restart and the user can retry', async () => {
   const {controller,data} = fixture();
   data.receipt={status:'error',version:'0.2.4',error:'installation cancelled'};
@@ -60,4 +76,17 @@ test('A cancelled installation is visible after restart and the user can retry',
   await controller.run('install'); assert.equal(data.attempts,1);
   data.receipt={status:'error',version:'0.2.4',error:'installation cancelled'};
   assert.equal((await controller.run('state')).error,'installation cancelled');
+});
+
+test('A restarted hub can promote a saved choice offline and retain its project', async () => {
+  const file={path:'verified-setup.exe',version:'2.0.0',sha256:'a'.repeat(64),projectId:'E03'};
+  const controller=createUpdateController({
+    updates:{state:()=>({status:'idle',currentVersion:'1.0.0'}),verifiedInstaller:()=>assert.fail('download state was lost on restart')},
+    installation:()=>({status:'scheduled',version:file.version}),scheduledInstaller:()=>file,
+    checkIdle:async()=>{},schedule:async (saved,id,mode)=>{
+      assert.equal(saved,file); assert.equal(id,'E03'); assert.equal(mode,'install');
+      return {status:'installing',version:saved.version};
+    },
+  });
+  assert.equal((await controller.run('install')).status,'installing');
 });

@@ -11,15 +11,14 @@
     <p id="appUpdateStatus" role="status"></p>
     <div id="appUpdateProgress" hidden><progress max="100"></progress><span class="update-count"></span></div>
     <p id="appUpdateError" role="alert"></p>
-    <div class="update-actions"><button type="button" id="appUpdateClose"></button><button type="button" id="appUpdateAction" class="primary"></button></div>`;
+    <div class="update-actions"><button type="button" id="appUpdateClose"></button><button type="button" id="appUpdateLater" hidden></button><button type="button" id="appUpdateAction" class="primary"></button></div>`;
   document.body.append(dialog);
   const find = selector => dialog.querySelector(selector);
-  const action = find('#appUpdateAction'), close = find('#appUpdateClose'), status = find('#appUpdateStatus');
+  const action = find('#appUpdateAction'), close = find('#appUpdateClose'), later = find('#appUpdateLater'), status = find('#appUpdateStatus');
   const problem = find('#appUpdateError'), progress = find('#appUpdateProgress'), bar = find('progress');
   find('h2').textContent = label('title');
   find('#appInstalledVersion dt').textContent = label('installed');
   find('#appLatestVersion dt').textContent = label('latest');
-  close.textContent = T('menu.dlg.close');
   bar.setAttribute('aria-label', label('downloading'));
   const numbers = new Intl.NumberFormat(document.documentElement.lang, {maximumFractionDigits:1});
   const unit = document.documentElement.lang === 'fr' ? 'Mo' : 'MB';
@@ -63,12 +62,18 @@
       const bytes = numbers.format(received / 1e6) + (total > 0 ? ' / ' + numbers.format(total / 1e6) : '');
       find('.update-count').textContent = bytes + ' ' + unit;
     }
-    const description = ['checking','current','available','downloading','ready','installing'].includes(phase) ? phase : null;
+    const description = ['checking','current','available','downloading','ready','scheduled','installing'].includes(phase) ? phase : null;
     status.textContent = description ? label(description, {v:state.latestVersion}) : '';
     problem.textContent = failure || (phase === 'error' ? humanError(state) : '');
     const failedDownload = phase === 'error' && state.errorStage !== 'install' && !!state.latestVersion && state.latestVersion !== state.currentVersion;
-    command = phase === 'ready' ? 'install' : phase === 'available' || failedDownload ? 'download'
+    const chooseInstall = phase === 'ready' || phase === 'scheduled';
+    command = chooseInstall ? 'install' : phase === 'available' || failedDownload ? 'download'
       : ['idle','current','error'].includes(phase) ? 'check' : '';
+    close.textContent = phase === 'ready' ? label('cancel') : T('menu.dlg.close');
+    close.disabled = ['defer','cancel','install'].includes(busy);
+    later.hidden = !chooseInstall;
+    later.disabled = !!busy;
+    later.textContent = label(phase === 'scheduled' ? 'cancelSchedule' : 'defer');
     action.hidden = !command; action.disabled = !!busy;
     if (command) action.textContent = label(command === 'check' && (phase === 'current' || state.errorStage === 'install') ? 'checkAgain'
       : phase === 'error' ? 'retry' : command);
@@ -97,18 +102,26 @@
     if (!operation || busy) return;
     clearTimeout(timer);
     busy = operation; failure = ''; draw();
+    const wasScheduled = state.status === 'scheduled';
+    const keepDraft = operation === 'install' || operation === 'defer';
     try {
-      if (operation === 'install' && window.MStudioBeforeUpdate) await window.MStudioBeforeUpdate();
+      if (keepDraft && window.MStudioBeforeUpdate) await window.MStudioBeforeUpdate(operation === 'install');
       state = await request(operation);
+      if (operation === 'cancel' && state.status !== 'scheduled' && state.status !== 'installing') {
+        await window.MStudioUpdateRefused?.();
+        dialog.close();
+      }
     } catch (error) {
-      if (operation === 'install' && error.status === 409 && window.MStudioUpdateRefused) await window.MStudioUpdateRefused();
+      if (keepDraft && !wasScheduled && error.status === 409) await window.MStudioUpdateRefused?.();
       failure = error.message || label('network');
     } finally {
       busy = ''; draw(); schedulePoll();
     }
   }
   action.onclick = () => run(command);
+  later.onclick = () => run(state.status === 'scheduled' ? 'cancel' : 'defer');
   close.onclick = () => dialog.close();
+  dialog.addEventListener('cancel', event => { if (close.disabled) event.preventDefault(); });
   dialog.addEventListener('close', () => { clearTimeout(timer); trigger.focus({preventScroll:true}); });
   dialog.addEventListener('keydown', event => event.stopPropagation());
   dialog.addEventListener('keyup', event => event.stopPropagation());

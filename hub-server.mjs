@@ -23,7 +23,7 @@ import { optionsFrom, episode, readJson, stamp } from './lib/episode.mjs';
 import { STUDIO, INSTALLED, CACHE, DATA } from './lib/place.mjs';
 import { APP_NAME, APP_VERSION, MSTUDIO, ENGINE_DIR, HUB_PORT, LAST_HUB_PORT, processIdentity, assertReviewAvailable } from './lib/app-profile.mjs';
 import { createAppUpdates } from './lib/app-updates.mjs';
-import { installationStatus, scheduleAppUpdate } from './lib/app-update-install.mjs';
+import { cancelScheduledUpdate, installationStatus, readScheduledInstaller, scheduleAppUpdate } from './lib/app-update-install.mjs';
 import { createUpdateController, installedUpdateTarget, updateAction, updateRequestStatus } from './lib/app-update-api.mjs';
 import { ffmpeg, sweepStaleTemp } from './lib/frames.mjs';
 import { renderState } from './lib/render.mjs';
@@ -339,9 +339,11 @@ async function checkUpdateIdle() {
 const appUpdates = MSTUDIO && installedUpdateTarget(STUDIO) ? createUpdateController({
   updates:createAppUpdates({version:APP_VERSION, dir:path.join(DATA, 'updates')}),
   installation:() => installationStatus(DATA),
-  schedule:(file, projectId) => scheduleAppUpdate({
+  scheduledInstaller:() => readScheduledInstaller(DATA),
+  cancel:() => cancelScheduledUpdate(DATA),
+  schedule:(file, projectId, mode) => scheduleAppUpdate({
     installerPath:file.path, sha256:file.sha256, version:file.version,
-    appDir:STUDIO, dataDir:DATA, projectId, language:lang(),
+    appDir:STUDIO, dataDir:DATA, projectId, language:lang(), mode,
   }),
   checkIdle:checkUpdateIdle,
 }) : null;
@@ -403,6 +405,9 @@ const server = http.createServer(async (req, res) => {
       if (code !== 200) return json(res, {error:'invalid-request'}, code);
       try {
         const projectId = ep && studios.has(ep) ? ep : null;
+        if ((operation === 'defer' || operation === 'install') && process.env.MSTUDIO_UPDATE_PROTOCOL !== '2') {
+          return json(res, {error:t('common.appUpdate.oldLauncher')}, 409);
+        }
         return json(res, await appUpdates.run(operation, projectId));
       } catch (error) { return json(res, {error:error.message}, error.status || 409); }
     }
