@@ -24,7 +24,14 @@
     previewOrigin = `${location.protocol}//p${Date.now().toString(36)}.localhost:${location.port}`; previewOrigins.add(previewOrigin);
     return previewOrigin;
   };
-  const previewUrl = (q) => `${previewOrigin}/player.html?${q}`;
+  const resolutionKey = 'mstudio.playbackResolution';
+  const parsePlaybackScale = (value) => [1, 0.75, 0.5, 0.25].includes(Number(value)) ? Number(value) : null;
+  let playbackScale = null, resolutionPending = false;
+  try { playbackScale = parsePlaybackScale(localStorage.getItem(resolutionKey)); } catch { /* storage unavailable */ }
+  const previewUrl = (q) => {
+    const scale = META?.engine === 'remotion' && playbackScale !== null ? `&previewScale=${playbackScale}` : '';
+    return `${previewOrigin}/player.html?${q}${scale}`;
+  };
   const remotes = new Map();   // a preview frame's window -> its remote player
   window.addEventListener('message', (e) => {
     if (!previewOrigins.has(e.origin)) return;
@@ -46,7 +53,8 @@
   const PREPARING = new Set(['whenReady', 'whenFrameReady', 'prepare', 'resume']), WRITE_F = new Set(['seek', 'play', 'pause', 'recover', 'prepare', 'unload', 'resume']), WRITE_S = new Set(['stage.setDelta', 'stage.reset', 'stage.select', 'stage.addCutout']);
   function remotePlayer(win, ver = null, origin = previewOrigin) {
     const M = { hello: null, frame: 0, playing: false, buffering: false, ready: false, loading: false, crashed: false, st: null, infos: new Map() };
-    let seq = 0, helloRes = null, wroteF = 0, wroteS = 0, gone = false, lastSeen = performance.now(), silent = false;
+    let seq = 0, helloRes = null, wroteF = 0, wroteS = 0, gone = false, lastSeen = performance.now();
+    let lastHealthCheck = lastSeen, probedAt = null, stalledFrame = null, sleeping = false, unloaded = false;
     const waits = new Map(), evOn = new Set(), stOn = new Set();
     const hello = new Promise((r) => { helloRes = r; });
     const callWith = (extra, path, ...args) => new Promise((res, rej) => {
@@ -80,9 +88,17 @@
     };
     function receive(d) {
       if (gone || (d.v !== undefined && ver !== null && String(d.v) !== String(ver))) return;
-      lastSeen = performance.now(); silent = false;
+      lastSeen = performance.now(); probedAt = null;
       if (d.hello) { if (ver !== null && d.hello.v !== undefined && String(d.hello.v) !== String(ver)) return; M.hello = d.hello; setState(d.state); helloRes(api); return; }
-      if (d.state) setState(d.state);
+      if (d.state) {
+        setState(d.state);
+        if (stalledFrame !== null && d.state.seen >= wroteF && M.frame === stalledFrame &&
+            !M.playing && !M.crashed && !M.loading && !M.buffering && M.ready &&
+            (!d.state.readiness || (d.state.readiness.verified && d.state.readiness.frame === stalledFrame))) {
+          stalledFrame = null;
+          for (const f of evOn) f({type: 'transport-restored', frame: M.frame});
+        }
+      }
       if (d.re) {
         const w = waits.get(d.re); if (!w) return;
         clearTimeout(w.timer); waits.delete(d.re);
@@ -157,9 +173,10 @@
       },
       setRate: (r) => send('setRate', r), setVolume: (v) => send('setVolume', v), mute: () => send('mute'), unmute: () => send('unmute'),
       restoreSound: () => call('restoreSound').catch(() => false),   // accusé de réception ; la preuve arrive par sound/back
-      sleep: (on) => send('sleep', on), recover: (f) => { M.crashed = false; send('recover', f); }, __crash: () => send('__crash'),
-      unload: () => { M.playing = false; M.ready = false; return call('unload'); },
-      resume: (f) => call('resume', f),
+      sleep: (on) => { sleeping = !!on; lastSeen = performance.now(); probedAt = null; send('sleep', on); },
+      recover: (f) => { M.crashed = false; send('recover', f); }, __crash: () => send('__crash'),
+      unload: () => { unloaded = true; M.playing = false; M.ready = false; return call('unload'); },
+      resume: (f) => { unloaded = false; lastSeen = performance.now(); probedAt = null; return call('resume', f); },
       whenReady: () => call('whenReady'), whenFrameReady: () => call('whenFrameReady'),
       prepare: (frame) => call('prepare', frame),
       pick: (f, x, y) => call('pick', f, x, y), hover: (f, x, y) => call('hover', f, x, y), pickMany: (f, pts) => call('pickMany', f, pts),
@@ -177,10 +194,21 @@
     // Un onglet caché est ralenti par Chrome : aucune alarme tant qu'il reste caché.
     const health = setInterval(() => {
       const now = performance.now();
-      if (document.hidden) { lastSeen = now; return; }
-      if (!M.hello || gone || silent || now - lastSeen < 30000) return;
-      silent = true; M.playing = false; M.ready = false; M.crashed = true;
-      const ev = { type: 'error', frame: M.frame, error: { kind: 'transport', message: 'L’aperçu ne répond plus depuis 30 secondes. Réessayer pour le recharger.', where: 'communication avec l’aperçu', stack: '' } };
+      // A suspended WebView can wake both timers together. Give its renderer a
+      // chance to answer an explicit probe after the window or computer wakes.
+      if (now - lastHealthCheck > 5000) probedAt = null;
+      lastHealthCheck = now;
+      if (document.hidden || sleeping || unloaded) { lastSeen = now; probedAt = null; return; }
+      if (!M.hello || gone || stalledFrame !== null || now - lastSeen < 25000) return;
+      if (probedAt === null) {
+        probedAt = now;
+        try { win.postMessage({coulissesPreview: 1, probe: true}, origin); } catch { /* detached or frozen */ }
+        return;
+      }
+      if (now - lastSeen < 30000 || now - probedAt < 4000) return;
+      stalledFrame = M.frame; M.playing = false; M.ready = false; M.crashed = true;
+      send('pause'); send('seek', stalledFrame);
+      const ev = { type: 'error', frame: stalledFrame, error: { kind: 'transport', reason: 'heartbeat-timeout', message: 'L’aperçu ne répond plus depuis 30 secondes.', where: 'communication avec l’aperçu', stack: '' } };
       for (const f of evOn) f(ev);
     }, 1000);
     remotes.set(win, entry);

@@ -123,6 +123,8 @@
   .rc .qline .seg button.on:disabled { opacity: .7; background: #f4f5fa; color: #11131c; }
   .rc #rcStep { margin-top: 2px; }
   #codeStatus, #proxy { font-size: 12px; color: var(--s9); }
+  #playbackResolutionControl { white-space:nowrap; color:var(--s11); font-size:11px; }
+  #playbackResolution { color-scheme:dark; color:var(--s12); background:var(--bg); border:1px solid var(--stroke-2); border-radius:4px; padding:2px 4px; font:inherit; }
   #stagewrap { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 12px 18px 8px; }
   /* under the image: its tools (left), the transport (middle), the speed and the sound (right) */
   #ctlbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 14px 12px; container-type: inline-size; }

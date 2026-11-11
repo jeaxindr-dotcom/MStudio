@@ -36,9 +36,10 @@ const cases = [
   }],
   ['En anglais, l’erreur média et le retour au direct sont traduits', async () => {
     const f = fixture(); await f.ready(); f.el('codeRangeVideo').emit('error');
-    assert.equal(f.el('codeRangeTools').children.at(-1).textContent, 'The prepared range cannot be played. Return to live code.');
-    await f.c.preparedCode.leave();
-    assert.equal(f.el('codeRangeTools').children.at(-1).textContent, 'Live code');
+    assert.equal(f.el('codeRangeTools').children.at(-1).textContent, 'Stopping preparation, then returning to live code…');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.el('codeRangeTools').children.at(-1).textContent, 'The prepared range cannot be played.');
+    assert.equal(f.c.preparedCode.active(), false);
   }],
   ['Le français conserve ses textes de préparation et de lecture', async () => {
     const f = fixture(true); assert.equal(f.el('prepareCodeRange').textContent, 'Préparer 30 s');

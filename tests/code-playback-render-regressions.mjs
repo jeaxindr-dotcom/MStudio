@@ -35,6 +35,13 @@ await check('La définition reste sous 1280×720, paysage comme portrait, sans a
     assert.ok(width * scale <= 1280 && height * scale <= 720 && scale <= 1);
   }
 });
+await check('Les quatre résolutions utilisent la taille native de la composition et gardent la piste audio', async () => {
+  for (const requested of [1, 0.75, 0.5, 0.25]) {
+    let options;
+    await runCodeRange({...job, scale: requested}, withComposition({renderVideo: async (_p, _o, opts) => {options = opts; return {};}, closeCode: async () => {}}, {...generation, width: 1920, height: 1080}));
+    assert.equal(options.scale, requested); assert.equal(options.muted, false);
+  }
+});
 await check('Une erreur de calcul ferme aussi le navigateur', async () => {
   let close = 0;
   await assert.rejects(runCodeRange(job, withComposition({ renderVideo: async () => { throw new Error('échec simulé'); }, closeCode: async () => close++ })), /échec simulé/);

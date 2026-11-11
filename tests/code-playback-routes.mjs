@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { validPlaybackScale } from '../lib/code-playback-scale.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = fs.readFileSync(path.join(ROOT, 'studio-server.mjs'), 'utf8');
@@ -16,7 +17,7 @@ function section(start, end) {
   return source.slice(a, b);
 }
 let helpers = section('const playbackOwners = new Map();', '// ---- the plans of the versions');
-let routes = section("    if (pn === '/api/code-playback' && CODE_PLAYBACK && req.method === 'POST')", "    // the preview's messages with the page");
+let routes = section("    if ((pn === '/api/code-playback' || pn === '/api/code-playback/prepare')", "    // the preview's messages with the page");
 const mutation = process.argv.indexOf('--mutant'), mutant = mutation < 0 ? null : process.argv[mutation + 1];
 const replace = (text, from, to) => {
   if (!text.includes(from)) throw new Error(`Protection à muter introuvable : ${from}`);
@@ -63,7 +64,7 @@ function setup() {
   const api = {
     update(generation) { currentGeneration = generation; updates.push(generation); },
     async request(range) {
-      const key = JSON.stringify([currentGeneration.hash, currentGeneration.mediaSignature, range.from, range.to]);
+      const key = JSON.stringify([currentGeneration.hash, currentGeneration.mediaSignature, range.from, range.to, range.scale]);
       let job = byKey.get(key);
       if (!job || job.status === 'cancelled') {
         job = { id: `job-${++nextJob}`, key, hash: currentGeneration.hash, mediaSignature: currentGeneration.mediaSignature, status: 'preparing', done: deferred() };
@@ -80,7 +81,7 @@ function setup() {
     async waitForIdle(id) { waits.push(id); const job = jobs.get(id); if (job?.status === 'preparing') await job.done.promise; return snapshot(job); },
   };
   const context = { CODE_PLAYBACK: api, player, timeline, timelineCodeVersion: 1, timelineChain: Promise.resolve(), P: { id: 'projet-de-test' },
-    codePlaybackSources: async () => sourceHook(++sourceCalls), URL,
+    codePlaybackSources: async () => sourceHook(++sourceCalls), validPlaybackScale, URL,
     body: async (req) => Buffer.from(JSON.stringify(req.payload ?? {})),
     json: (_res, data, status = 200) => ({ kind: 'json', status, data }),
     sendFile: (_req, _res, file, type) => { files.push(file); return { kind: 'file', status: 200, file, type }; },
@@ -97,6 +98,18 @@ function setup() {
 }
 
 try {
+  {
+    const s = setup();
+    const invalid = await s.call('/api/code-playback/prepare', 'POST', input('profil', {scale: '0.25'}));
+    check(invalid.status === 400 && !s.builds, 'le serveur refuse une résolution invalide avant de lire ou rendre le projet');
+    const quarter = await s.call('/api/code-playback/prepare', 'POST', input('profil', {scale: 0.25}));
+    const reuse = await s.post(input('profil', {scale: 0.25}));
+    const conflict = await s.post(input('profil', {scale: 1}));
+    const other = await s.post(input('autre-profil', {scale: 1}));
+    check(quarter.status === 200 && reuse.data.id === quarter.data.id && s.requests[0].scale === 0.25, 'les deux routes conservent le même job pour le même propriétaire et la même résolution');
+    check(conflict.status === 409 && other.data.id !== quarter.data.id, 'une ancienne demande du même propriétaire ne réutilise pas une plage de résolution différente');
+    await s.finishAll();
+  }
   {
     const s = setup(), cancel = await s.cancel('avant-post'), post = await s.post(input('avant-post'));
     check(cancel.status === 200 && post.status === 409, 'une annulation arrivée avant POST laisse une interdiction persistante');

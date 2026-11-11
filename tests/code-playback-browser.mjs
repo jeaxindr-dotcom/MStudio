@@ -183,6 +183,15 @@ try {
     return live && await page.eval(`return document.querySelector('#codeRangeVideo').hidden && !document.querySelector('iframe.code-next')`);
   }, 'retour au Player monté et à son image prête');
   check(await page.eval(`return __studio.state().mode==='code' && Math.abs(__studio.state().frame-${pausedFrame})<=1`), 'Le retour au code vivant conserve l’image de relecture');
+  // Le rechargement de l'aperçu peut aussi être demandé pendant que la plage possède le Player.
+  await page.eval('await __preview.seek(270); await __preview.whenReady(); window.previousPlayer=__preview; return true');
+  await page.until("!document.querySelector('#prepareCodeRange').disabled");
+  await click('#prepareCodeRange');
+  await page.until("!document.querySelector('#codeRangeVideo').hidden && document.querySelector('#codeRangeVideo').readyState>=2");
+  await page.eval("document.querySelector('#previewReadiness button').click()");
+  await page.until("window.__preview && __preview !== previousPlayer && __preview.frameReadiness()?.verified && !document.querySelector('#prepareCodeRange').disabled", 90000);
+  check(await page.eval("return __preview.frame()===270 && document.querySelector('#returnLiveCode').hidden && document.querySelector('#codeRangeVideo').hidden"),
+    'Un rechargement pendant la plage retrouve le direct à la même image et permet une nouvelle préparation');
   await page.goto('about:blank'); await page.close(); page = null;
 
   // Réactiver l’entrée cache si le retour au direct l’a libérée, puis modifier exactement un fichier

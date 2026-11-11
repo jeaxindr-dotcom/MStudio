@@ -19,13 +19,14 @@ Sur [l’animation de Lucas Vieira publiée dans le domaine public](https://comm
 
 ## Installer et ouvrir
 
-Télécharge et lance `MStudio-Setup-0.2.2-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
+Télécharge et lance `MStudio-Setup-0.2.3-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
 
 ## Utiliser les sources
 
 Compilation sous Windows : utilise de préférence un chemin de travail court, par exemple `C:\src\MStudio`. Si Inno Setup indique « Le chemin d’accès spécifié est introuvable » dans une arborescence profonde, rouvre le projet via un chemin court puis relance la commande de compilation ci-dessous.
 
 - Ouvre la bibliothèque pour retrouver les espaces Revue, Montage et Storyboard. **Agent** conserve le contexte de l’image lorsqu’on lui envoie une modification ; **Scène** sert à la mise en scène dans les projets compatibles.
+- Dans le moniteur **Code actuel**, **Résolution de lecture** propose Auto, 100 %, ¾, ½ et ¼. À ½, une scène 3D de 1920 × 1080 est dessinée en 960 × 540. Pour écouter et revoir un passage à la cadence du projet, place la tête de lecture au début et clique sur **Préparer 30 s**. La résolution choisie s’applique aussi à cette plage. **Revenir au direct** rouvre le code à l’image affichée. L’export utilise ses propres réglages.
 - Dans **Scène → Éléments de la scène**, cherche un objet par son nom pour le sélectionner, même si un autre le masque. Double-clique sur son nom pour le cadrer, puis maintiens la molette et glisse pour tourner autour de lui. En **Caméra libre**, le clic gauche sélectionne ; maintiens la molette et glisse pour tourner, maintiens le bouton droit et glisse pour déplacer la vue, ou roule la molette pour zoomer. **Grille 3D** affiche le sol et la boussole sans modifier le film ni les captures de revue.
 - Dans un projet reconstruit, ouvre `src/layers.json` pour les calques, `src/Scene.tsx` pour le code de dessin. Depuis le dossier du projet, `npm run studio` ouvre Remotion Studio et `npm run render` exporte la vidéo. Sur un autre poste, installe les dépendances du `package.json`.
 - [Protocole de l’agent](AGENT.md) · [Contrat d’un projet Remotion](docs/FICHE-COULISSES-REMOTION.md) · [Reconstruire une vidéo, pas à pas](docs/RECONSTRUIRE-UNE-VIDEO-AVEC-REMOTION.md).

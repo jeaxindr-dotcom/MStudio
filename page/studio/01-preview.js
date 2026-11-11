@@ -205,6 +205,10 @@
       if (SP !== sp) return;
       // (while moving, the preview's « loading » is not shown: the end of the move is watched by codeSettle)
       if (ev.type === 'error') { codeCrashed(plain(ev)); return; }
+      if (ev.type === 'transport-restored' && crash?.reason === 'heartbeat-timeout') {
+        crash = null; codeErrEl.classList.remove('on'); codeWait(false);
+        setSave(T('st.code.transportRestored', {f: ev.frame}), 'ok'); fire('pause'); fire('seeked'); return;
+      }
       if (ev.type === 'ready-error') {
         recordFrameFault(sp, ev.frame, ev.reason, ev.expired, ev.error?.message);
         return;
@@ -262,6 +266,8 @@
       const film = $('#codeRangeVideo');
       if (film && !film.hidden && film.readyState >= 2 && !film.seeking && !film.error) return null;
     }
+    if (preparedCode?.preparing()) return {state:'loading', reason:'code-range-preparing', frame, observedFrame:null,
+      version:codeVer, hash:STATUS.code?.hash ?? null, staleLegacy:0};
     const sp = SP, q = sp?.frameReadiness?.();
     const sameFault = frameFault && (frameFault.player?.deref() ?? null) === sp && (frameFault.frame === frame || !sp);
     if (sameFault && q?.verified && q.frame === frame) frameFault = null;
@@ -291,13 +297,15 @@
       'image':['image en chargement','image loading'], 'font':['police en chargement','font loading'],
       'no-frame-confirmation':['confirmation du lecteur en attente','waiting for player confirmation'],
       'frame-not-confirmed':['position en attente de confirmation','frame position unconfirmed'],
+      'code-range-preparing':['préparation de la plage','preparing the range'],
     };
     return messages[reason]?.[FR ? 0 : 1] || reason;
   }
   function updateReadinessNotice() {
     const info = mode === 'code' && META ? previewNoteReadiness(curFrame(), !SP?.isPlaying?.()) : null;
-    readinessNotice.hidden = !info;
-    if (!info) return;
+    // La barre de préparation indique déjà l'attente volontaire du Player suspendu.
+    readinessNotice.hidden = !info || info.reason === 'code-range-preparing';
+    if (readinessNotice.hidden) return;
     const label = (info.state === 'expired' ? (FR ? 'Préparation expirée' : 'Preparation timed out') : (FR ? 'Image non confirmée' : 'Frame unverified'))
       + ' · ' + readinessLabel(info.reason) + (FR ? ' · les notes seront signalées.' : ' · notes will be flagged.');
     if (readinessText.textContent !== label) readinessText.textContent = label;
@@ -320,16 +328,21 @@
   const codeErrEl = $('#codeCrash');   // (#codeErr is the build error of the code)
   function codeCrashed(ev) {
     const e = ev.error ?? {}, at = ev.at ?? ev.frame ?? curFrame();
-    crash = { ...e, at };
+    const failedLink = e.kind === 'transport', lostCanvas = e.kind === 'webgl';
+    const title = T(failedLink ? 'st.code.transportTitle' : lostCanvas ? 'st.code.graphicsTitle' : 'st.code.crash', {f: at});
+    const message = e.reason === 'heartbeat-timeout' ? T('st.code.transportTimeout') : (e.message ?? '');
+    crash = { ...e, at, title, message };
     RS.el?.pause();
-    $('#ceTitle').textContent = T('st.code.crash', { f: at }); $('#ceMsg').textContent = e.message ?? ''; $('#ceWhere').textContent = e.where ? T('st.code.crashWhere', { w: e.where }) : '';
+    $('#ceTitle').textContent = title; $('#ceMsg').textContent = message;
+    $('#ceWhere').textContent = e.where && !failedLink && !lostCanvas ? T('st.code.crashWhere', {w: e.where}) : '';
+    $('#ceHelp').textContent = T(failedLink ? 'st.code.transportHelp' : lostCanvas ? 'st.code.graphicsHelp' : 'st.code.crashSub');
     codeErrEl.classList.add('on'); codeWaitEl.classList.remove('pend', 'pend-key', 'on');
     postJson('/api/preview-error', { frame: at, message: e.message, where: e.where, stack: (e.stack ?? '').split('\n').slice(0, 12).join('\n'), version: codeVer }).catch(() => {});
-    setSave(T('st.code.crash', { f: at }), 'err');
+    setSave(title, 'err');
   }
-  function codeRecover(f = curFrame()) {
+  function codeRecover(f = crash?.at ?? curFrame()) {
     if (!crash || !SP) return;
-    if (crash.kind === 'transport' || crash.kind === 'webgl') { hardReload(crash.at ?? f, crash.kind); return; }
+    if (crash.kind === 'transport' || crash.kind === 'webgl') { hardReload(f, crash.kind); return; }
     crash = null; codeErrEl.classList.remove('on');
     SP.recover?.(f);
     if (mode === 'code') codeWaitEl.classList.add('on');   // the Player mounts again: the frame covered until it is complete (behind the MP4: nothing to cover)
@@ -339,6 +352,7 @@
   // loaded in its place at the same image. Preparing the new one behind the frozen one could never work: both iframes
   // share the renderer process of the preview's origin, frozen with it (user report 31/10/2026: « Réessayer » did nothing).
   function hardReload(f, crash0 = null) {
+    if (preparedCode?.active()) return preparedCode.reload(f, crash0);
     soundRepair = null;
     const old = SP, at = Math.max(0, Math.min((old?.durationInFrames ?? FRAMES ?? 1) - 1, f ?? curFrame()));
     cancelCodePreparation();
@@ -355,11 +369,11 @@
     return loadCode({ fresh: true, frame: at }).then((sp) => { if (sp && SP === sp) codeWaitEl.classList.remove('on'); return sp; });
   }
   $('#ceRetry').onclick = () => codeRecover();
-  $('#ceCopy').onclick = () => { if (crash) copy(`${T('st.code.crash', { f: crash.at })}\n${crash.message}\n${crash.where ?? ''}`); };
+  $('#ceCopy').onclick = () => { if (crash) copy(`${crash.title}\n${crash.message}\n${crash.where ?? ''}`); };
   $('#ceNote').onclick = () => {
     if (!crash) return;
     const n = addNote(crash.at, null, false, { source: 'code' });
-    if (n) { n.text = T('st.code.crashNoteText', { msg: crash.message, where: crash.where ? ` (${crash.where})` : '' }); save(); renderAll(); setSave(T('st.code.crashNoted'), 'ok'); }
+    if (n) { n.text = crash.kind === 'transport' || crash.kind === 'webgl' ? `${crash.title}. ${crash.message}` : T('st.code.crashNoteText', { msg: crash.message, where: crash.where ? ` (${crash.where})` : '' }); save(); renderAll(); setSave(T('st.code.crashNoted'), 'ok'); }
   };
   // an arrow released before the hold (a tap): its veil at the usual 90 ms from now
   function keyReleased() { if (codeWaitEl.classList.contains('pend-key')) { codeWaitEl.classList.remove('pend-key'); codeWaitEl.classList.add('pend'); } }

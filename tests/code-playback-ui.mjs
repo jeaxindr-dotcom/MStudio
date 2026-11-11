@@ -22,6 +22,7 @@ function fixture({unload = null, creation = null, cancellation = null, polling =
   const c = {document: {createElement: (tag) => new Element(tag)}, $: selector => selector === '#stagewrap' ? stagewrap : null, media: new Element('div'), window: {},
     mode: 'code', META: {engine: 'remotion'}, STATUS: {code: {version: 1, hash: 'hash1', status: 'ready'}}, codeVer: 1,
     rate: 1, vol: 1, FPS: 30, CW: 1920, CH: 1080, staging: false, codeLoading: null, preparedCode: null,
+    playbackScale: null, resolutionPending: false, refreshPlaybackResolution() {},
     v: {volume: 1, playbackRate: 1}, RS: {wait: false, el: {pause: () => trace.push(['son-pause'])}},
     crypto: {randomUUID: () => 'proprietaire-ui'},
     codeWait: (on) => trace.push(['attente', on]), setSave: (message) => trace.push(['message', message]), fire: (name) => events.push(name),
@@ -54,6 +55,12 @@ function fixture({unload = null, creation = null, cancellation = null, polling =
   return {c, trace, events, el, click, tick, ready};
 }
 const cases = [], test = (name, fn) => cases.push([name, fn]);
+test('La plage utilise la résolution sélectionnée au clic, même si le démontage prend du temps', async () => {
+  const unload = defer(), f = fixture({unload});
+  f.c.playbackScale = 0.25; const start = f.click(); f.c.playbackScale = 0.75;
+  unload.resolve(); await start;
+  assert.equal(f.trace.find(x => x[0] === 'requête' && x[1] === '/api/code-playback')[2].scale, 0.25);
+});
 test('Retour pendant démontage : attendre sa fin avant reprise', async () => {
   const unload = defer(), f = fixture({unload}); const start = f.click();
   const leaving = f.c.preparedCode.leave(); await later(); const early = f.trace.some((x) => x[0] === 'reprise');
@@ -89,6 +96,40 @@ test('Le dernier déplacement demandé pendant annulation est conservé', async 
   const cancellation = defer(), f = fixture({cancellation}); await f.ready();
   const a = f.c.preparedCode.leave(1500); await later(); const b = f.c.preparedCode.leave(2100); cancellation.resolve(); await a; await b;
   assert.equal(f.trace.findLast((x) => x[0] === 'reprise')?.[1], 2100);
+});
+test('Un rechargement attend l’annulation puis reconstruit une seule fois à la dernière image', async () => {
+  const cancellation = defer(), f = fixture({cancellation}), rebuilt = [];
+  f.c.hardReload = async (frame, cause) => {
+    assert.equal(f.c.preparedCode.active(), false);
+    rebuilt.push([frame, cause]); return f.c.SP;
+  };
+  await f.ready();
+  const reload = f.c.preparedCode.reload(592, 'transport');
+  await later(); assert.deepEqual(rebuilt, []);
+  const seek = f.c.preparedCode.leave(620);
+  cancellation.resolve(); await reload; await seek; await f.tick();
+  assert.deepEqual(rebuilt, [[620, 'transport']]);
+  assert.equal(f.trace.some(x => x[0] === 'reprise'), false);
+  assert.equal(f.el('prepareCodeRange').disabled, false);
+});
+test('Un Player déjà détaché reste récupérable au retour au direct', async () => {
+  const f = fixture(); await f.ready();
+  const original = f.c.SP; f.c.SP = null;
+  let target;
+  f.c.hardReload = async frame => { target = frame; f.c.SP = original; return original; };
+  await f.c.preparedCode.leave(592); await f.tick();
+  assert.equal(target, 592); assert.equal(f.el('returnLiveCode').hidden, true);
+  assert.equal(f.el('prepareCodeRange').disabled, false);
+});
+test('Un calcul échoué restaure le direct et conserve la cause du serveur', async () => {
+  const polling = defer(), f = fixture({polling});
+  await f.click();
+  polling.resolve({id:'travail1', status:'error', current:false, error:'Le moteur de rendu a échoué.'});
+  await f.tick(); await later(); await f.tick();
+  assert.equal(f.c.preparedCode.active(), false);
+  assert.equal(f.el('prepareCodeRange').disabled, false);
+  assert.equal(f.el('codeRangeTools').children.at(-1).textContent, 'Le moteur de rendu a échoué.');
+  assert.equal(f.trace.findLast(x => x[0] === 'reprise')?.[1], 300);
 });
 test('Changer volume et vitesse ne réveille pas le Player suspendu', async () => {
   const f = fixture(); await f.ready(); f.c.M.volume = 0.4; f.c.M.playbackRate = 1.5;

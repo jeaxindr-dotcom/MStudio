@@ -87,6 +87,11 @@
       </span>
       <span id="codeStatus"></span>
       <span class="grow"></span>
+      <label id="playbackResolutionControl" hidden title="{{st.preview.resolutionHelp}}">
+        {{st.preview.resolution}} <select id="playbackResolution">
+          <option value="auto">Auto</option><option value="1">100 %</option><option value="0.75">¾</option><option value="0.5">½</option><option value="0.25">¼</option>
+        </select>
+      </label>
       <button id="open3d" class="soft" style="display:none"><i data-ic="move"></i><span></span></button>
       <span id="proxy"></span>
       <div class="monitorGuides">
@@ -105,7 +110,7 @@
           <iframe id="code" title="{{st.codeFrame}}" allow="autoplay; fullscreen"></iframe>
           <!-- the live preview's frame not complete yet (its videos loading, seeking): covered, and said (player/ready.ts) -->
           <!-- the composition failed in the live preview (player/crash.tsx): what, where, and what to do -->
-          <div id="codeCrash"><b id="ceTitle"></b><code id="ceMsg"></code><span class="s" id="ceWhere"></span><span class="s">{{st.code.crashSub}}</span>
+          <div id="codeCrash"><b id="ceTitle"></b><code id="ceMsg"></code><span class="s" id="ceWhere"></span><span class="s" id="ceHelp">{{st.code.crashSub}}</span>
             <div class="acts"><button class="primary" id="ceRetry">{{st.code.retry}}</button><button class="soft" id="ceNote">{{st.code.crashNote}}</button><button class="soft" id="ceCopy">{{st.code.crashCopy}}</button></div></div>
           <div id="codeWait"><span class="sp"></span><b>{{st.code.loadingFrame}}</b><span class="s">{{st.code.loadingFrameSub}}</span></div>
           <!-- the grade, shown on the image (page/studio/11-grade.js): the filter on what is behind it, the vignette, the grain;

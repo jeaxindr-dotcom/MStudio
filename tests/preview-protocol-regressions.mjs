@@ -41,9 +41,27 @@ test('G4 : les événements d’une autre génération sont ignorés', () => {
   assert.equal(f.api.frame(), 12);
 });
 test('G14 : trente secondes de silence produisent un seul diagnostic', () => {
-  const f = remote(), events = []; f.api.on((e) => events.push(e)); f.advance(31000);
-  for (const t of f.intervals) t.fn(); for (const t of f.intervals) t.fn();
+  const f = remote(), events = []; f.api.on((e) => events.push(e));
+  for (let n = 0; n < 33; n++) { f.advance(1000); for (const t of f.intervals) t.fn(); }
+  assert.ok(f.sent.some(d => d.probe)); assert.equal(f.sent.at(-1).call, 'seek');
   assert.equal(events.length, 1); assert.equal(events[0].error.kind, 'transport'); assert.equal(f.api.crashed(), true);
+  f.receive({probe: true});
+  const state = {seen: f.sent.at(-1).id, frame: 12, ready: true, readiness: {frame: 12, verified: false}};
+  f.receive({heartbeat: true, state}); assert.equal(events.length, 1);
+  state.readiness.verified = true;
+  f.receive({heartbeat: true, state}); f.receive({heartbeat: true, state});
+  assert.equal(events.length, 2); assert.equal(events.at(-1).type, 'transport-restored');
+});
+test('Après une veille du PC, le lecteur répond au sondage avant toute alerte', () => {
+  const f = remote(), events = []; f.api.on(e => events.push(e));
+  f.advance(90000); f.intervals[0].fn(); assert.ok(f.sent.at(-1).probe);
+  f.receive({probe: true}); f.advance(1000); f.intervals[0].fn();
+  assert.equal(events.length, 0); assert.equal(f.api.crashed(), false);
+});
+test('Le lecteur suspendu pour la plage préparée ne signale aucune panne', () => {
+  const f = remote(), events = []; f.api.on(e => events.push(e)); void f.api.unload();
+  for (let n = 0; n < 45; n++) { f.advance(1000); f.intervals[0].fn(); }
+  assert.equal(events.length, 0); assert.equal(f.sent.some(d => d.probe), false);
 });
 test('Un onglet caché ne produit pas de faux diagnostic de silence', () => {
   const f = remote(), events = []; f.api.on((e) => events.push(e)); f.c.document.hidden = true; f.advance(90000);
@@ -114,6 +132,14 @@ test('G13 : le propriétaire de secours reste accepté par le serveur', () => {
 test('G13 : revenir sur la page renouvelle immédiatement son bail', () => {
   const f = bridge(); const before = f.requests.length; f.handlers.pageshow?.();
   assert.equal(f.requests.length, before + 1);
+});
+test('Restaurer la page depuis le cache réarme le signal de vie et répond sans inspecter le contenu', async () => {
+  const f = bridge(); f.handlers.pagehide(); f.handlers.pageshow({persisted: true});
+  assert.equal(f.intervals.filter(t => t.ms === 1000 && !t.cleared).length, 1);
+  assert.ok(f.sent.some(d => d.heartbeat));
+  f.p.frame = () => {throw new Error('inspection indisponible');};
+  await f.handlers.message({source: f.c.window.parent, origin: 'http://127.0.0.1:4999', data: {coulissesPreview: 1, probe: true}});
+  assert.ok(f.sent.at(-1).probe);
 });
 test('G14 : une ancienne génération expirée est signalée sans substitution', async () => {
   const f = bridge({leaseValid: false}); await later();

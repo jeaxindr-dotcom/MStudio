@@ -37,6 +37,7 @@ import { playerBuilder } from './lib/player-build.mjs';
 import { timelineBuilder } from './lib/timeline-live.mjs';
 import { reviewSound } from './lib/review-sound.mjs';
 import { createCodePlayback } from './lib/code-playback.mjs';
+import { validPlaybackScale } from './lib/code-playback-scale.mjs';
 import { renderCodeRange } from './lib/code-playback-render.mjs';
 import { codePlaybackSources } from './lib/code-playback-sources.mjs';
 import { timelineCodeThumbnails } from './lib/timeline-code-thumbnails.mjs';
@@ -818,21 +819,24 @@ const server = http.createServer(async (req, res) => {
       if (b.release) { player.release?.(b.owner); return json(res, { ok: true }); }
       return json(res, { ok: !!player.retain?.(b.hash, b.owner) });
     }
-    if (pn === '/api/code-playback' && CODE_PLAYBACK && req.method === 'POST') {
+    if ((pn === '/api/code-playback' || pn === '/api/code-playback/prepare') && CODE_PLAYBACK && req.method === 'POST') {
       const b = JSON.parse((await body(req)).toString('utf8') || '{}');
+      if (!validPlaybackScale(b.scale)) return json(res, { error: 'Résolution de lecture invalide.' }, 400);
       if (typeof b.owner !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(b.owner)) return json(res, { error: 'Propriétaire de préparation invalide.' }, 400);
       let entry = playbackOwners.get(b.owner);
       if (entry?.cancelled) return json(res, { error: 'Cette préparation a été annulée.' }, 409);
+      const requestKey = JSON.stringify([b.version, b.from, b.to, b.width, b.height, b.scale]);
+      if (entry && entry.requestKey !== requestKey) return json(res, { error: 'Ce propriétaire a déjà demandé une autre plage ou résolution.' }, 409);
       if (!entry) {
         if (playbackOwners.size >= 1000) return json(res, { error: 'Trop de demandes dans cette session.' }, 429);
-        entry = { id: null, promise: null, requestKey: JSON.stringify([b.version, b.from, b.to, b.width, b.height]) };
+        entry = { id: null, promise: null, requestKey };
         playbackOwners.set(b.owner, entry);
         entry.promise = (async () => {
           if (b.version !== player.state.version) throw new Error('La version demandée a changé.');
           const generation = await playbackGeneration(b);
           if (entry.cancelled) throw new Error('Préparation annulée avant le calcul.');
           CODE_PLAYBACK.update(generation);
-          const state = await CODE_PLAYBACK.request({ from: b.from, to: b.to }); entry.id = state.id;
+          const state = await CODE_PLAYBACK.request({ from: b.from, to: b.to, scale: b.scale }); entry.id = state.id;
           if (entry.cancelled) { await releasePlaybackOwner(entry); throw new Error('Préparation annulée.'); }
           return state;
         })();

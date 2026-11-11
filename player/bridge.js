@@ -34,7 +34,10 @@
   };
   lease();
   let leaseTimer = setInterval(lease, 20000);
-  window.addEventListener('pageshow', () => { lease(); clearInterval(leaseTimer); leaseTimer = setInterval(lease, 20000); });
+  window.addEventListener('pageshow', (event) => {
+    lease(); clearInterval(leaseTimer); leaseTimer = setInterval(lease, 20000);
+    if (event?.persisted) { clearInterval(health); health = setInterval(beat, 1000); beat(); }
+  });
   document.addEventListener?.('visibilitychange', () => { if (!document.hidden) lease(); });
   let seen = 0;   // the last call of the page this preview has done (in every state and event: the page knows what is fresh)
   const plainOf = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
@@ -68,6 +71,7 @@
     if (e.source !== window.parent || !fromParent(e.origin)) return;
     const d = e.data; if (!d || d.coulissesPreview !== 1) return;
     if (d.shortcuts) { try { await window.Shortcuts?.reload?.(); } catch { /* the defaults */ } return; }   // the user's keys changed (Aide › Raccourcis clavier)
+    if (d.probe === true) { post({probe: true}); return; }
     if (typeof d.call !== 'string') return;
     let value, ok = true, error = null, errorName;
     seen = Math.max(seen, d.id || 0); inCall = true;
@@ -107,8 +111,9 @@
     });
     p.stage?.on?.((ev) => { post({ stageEv: quiet ? { ...ev, quiet: true } : ev }); pushStage(); });
   })();
-  const health = setInterval(() => { if (sp()) post({ heartbeat: true, state: stateOf(false) }); }, 1000);
-  window.addEventListener('pagehide', () => { clearInterval(health); clearInterval(leaseTimer); lease(true); }, { once: true });
+  const beat = () => { if (sp()) post({ heartbeat: true, state: stateOf(false) }); };
+  let health = setInterval(beat, 1000);
+  window.addEventListener('pagehide', () => { clearInterval(health); clearInterval(leaseTimer); lease(true); });
   window.addEventListener('webglcontextlost', (e) => {
     if (!e.target?.isConnected) return;
     post({ ev: { type: 'error', seen, frame: sp()?.frame() ?? 0,

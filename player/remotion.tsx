@@ -101,7 +101,12 @@ const stage: any = {
   applyNow: () => stage2d.applyNow(),
 };
 // the composition inside the camera's frame (an AbsoluteFill-like box: the project's own AbsoluteFills fill it as before)
-const Framed: React.FC<any> = (p) => React.createElement('div', { id: 'coulisses-camera', style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } }, React.createElement(comp.component, p));
+// Ne pas reconstruire le projet à chaque rendu du Player pour des props identiques.
+// Les composants abonnés à l'image Remotion, au contexte ou à leur état continuent de se mettre à jour.
+const Framed = React.memo(function Framed(p: Record<string, unknown>) {
+  return React.createElement('div', { id: 'coulisses-camera', style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } },
+    React.createElement(comp.component, p));
+});
 
 (window as any).StudioPlayer = {
   stage, generic: true,

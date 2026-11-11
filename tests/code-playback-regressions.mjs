@@ -14,7 +14,7 @@ let moduleUrl = pathToFileURL(path.join(ROOT, 'lib/code-playback.mjs')).href;
 if (revAt >= 0) {
   try {
     const source = execFileSync('git', ['show', `${process.argv[revAt + 1]}:lib/code-playback.mjs`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    const fixed = source.replace("'./render-activity.mjs'", JSON.stringify(pathToFileURL(path.join(ROOT, 'lib/render-activity.mjs')).href));
+    const fixed = source.replace(/'\.\/(render-activity|code-playback-scale)\.mjs'/g, (_match, name) => JSON.stringify(pathToFileURL(path.join(ROOT, 'lib', name + '.mjs')).href));
     moduleUrl = `data:text/javascript;base64,${Buffer.from(fixed).toString('base64')}`;
   } catch {
     check(false, 'la version de référence fournit une file bornée de préparation des plages du code');
@@ -61,6 +61,7 @@ try {
       check(await rejected(() => s.api.request(range)), `plage invalide refusée : ${JSON.stringify(range)}`);
     }
     check(s.calls.length === 0, 'les demandes invalides ne démarrent aucun travail');
+    for (const scale of [null, 0, 0.125, '0.5', 2]) check(await rejected(() => s.api.request({from: 0, to: 30, scale})), `résolution non proposée refusée : ${scale}`);
     const c = s.api.status().cache;
     check(c.maxBytes === 512 * 1024 ** 2 && c.maxEntries === 6 && c.maxSeconds === 30, 'budgets par défaut : 512 Mio, six plages et trente secondes');
     s.api.dispose();
@@ -71,16 +72,28 @@ try {
     check(s.api.status(a.id).status === 'queued' && !s.calls.length, 'un export actif garde la demande en attente');
     s.busy(false); await s.tick();
     check(s.api.status(a.id).status === 'preparing' && s.calls.length === 1 && s.guardCalls >= 3, 'la garde est relue avant puis après l’obtention du verrou');
-    s.calls[0].onProgress(0.4);
+    check(a.renderedFrames === 0, 'la plage en attente démarre à zéro image calculée');
+    s.calls[0].onProgress(0.4, 17);
     check(s.api.status(a.id).progress === 0.4, 'la progression est attribuée à sa tâche');
+    check(s.api.status(a.id).renderedFrames === 17, 'le compteur expose le nombre exact d’images du moteur indépendamment du pourcentage');
+    s.calls[0].onProgress(0.42);
+    check(s.api.status(a.id).renderedFrames === 17, 'une mise à jour sans compteur conserve le nombre d’images calculées');
     const duplicate = await s.api.request({ from: 0, to: 30 });
     check(duplicate.id === a.id && s.calls.length === 1, 'une même plage en cours ne démarre pas un second travail');
     const b = await s.api.request({ from: 30, to: 60 }); await flush();
     check(s.api.status(b.id).status === 'queued' && s.calls.length === 1, 'une seule tâche locale fonctionne à la fois');
     await s.finish(0); await s.tick();
     check(s.api.status(a.id).status === 'ready' && !!s.api.file(a.id) && s.calls.length === 2, 'la fin d’une tâche publie sa plage et libère la suivante');
+    check(s.api.status(a.id).renderedFrames === 30, 'une plage publiée contient toutes ses images calculées');
     await s.finish(1);
     check(s.times.every((ms) => ms === 2000), 'la surveillance utilise un intervalle de deux secondes');
+    const half = await s.api.request({from: 0, to: 30, scale: 0.5}); await flush();
+    check(half.key !== a.key && s.calls[2].scale === 0.5 && half.scale === 0.5, 'une plage à 50 % a sa propre clé et transporte son échelle au worker');
+    await s.finish(2);
+    const reopened = setup({cacheDir: s.args.cacheDir, lockFile: s.args.lockFile}); reopened.api.update(generation());
+    const halfAgain=await reopened.api.request({from:0,to:30,scale:0.5}), automatic=await reopened.api.request({from:0,to:30});
+    check(halfAgain.status==='ready' && automatic.status==='ready' && halfAgain.key===half.key && automatic.key===a.key && !reopened.calls.length, 'le cache persistant relit indépendamment le profil 50 % et le profil automatique historique');
+    check(halfAgain.renderedFrames === 30 && automatic.renderedFrames === 30, 'une plage restaurée du cache connaît son nombre d’images');
     s.api.dispose();
   }
   {

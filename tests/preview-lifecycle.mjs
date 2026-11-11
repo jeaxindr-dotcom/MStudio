@@ -58,7 +58,7 @@ function reactRoot() {
   const config = {
     now: Date.now, getRootHostContext: () => ({}), getChildHostContext: () => ({}), prepareForCommit: () => null,
     resetAfterCommit: noop, shouldSetTextContent: () => false, createInstance: () => ({}), createTextInstance: () => ({}),
-    appendInitialChild: noop, finalizeInitialChildren: () => false, appendChild: noop, appendChildToContainer: noop,
+    appendInitialChild: noop, finalizeInitialChildren: () => false, commitUpdate: noop, appendChild: noop, appendChildToContainer: noop,
     removeChild: noop, removeChildFromContainer: noop, clearContainer: noop, supportsMutation: true, isPrimaryRenderer: true,
     supportsPersistence: false, supportsHydration: false, getPublicInstance: x => x, getCurrentUpdatePriority: () => 32,
     setCurrentUpdatePriority: noop, resolveUpdatePriority: () => 32, maySuspendCommit: () => false, preloadInstance: () => true,
@@ -70,6 +70,33 @@ function reactRoot() {
   const root = reconciler.createContainer({}, 0, null, false, null, '', e => errors.push(e), e => errors.push(e), e => errors.push(e), null);
   return node => { reconciler.updateContainerSync(node, root, null, null); reconciler.flushSyncWork(); reconciler.flushPassiveEffects(); if (errors.length) throw errors.shift(); };
 }
+await test('L’enveloppe du projet reste stable sur 60 images, ses props, son état et ses contextes restent réactifs', () => {
+  const frameContext = React.createContext(0), themeContext = React.createContext('jour');
+  const useCurrentFrame = () => React.useContext(frameContext);
+  let rootRenders = 0, last = null, updateLocal;
+  function Shot({title, local, theme}) {
+    last = [title, local, theme, useCurrentFrame()]; return null;
+  }
+  function Project({title}) {
+    const [local, setLocal] = React.useState(0); updateLocal = setLocal;
+    const theme = React.useContext(themeContext); rootRenders++;
+    return React.createElement(Shot, {title, local, theme});
+  }
+  const src = source('player/remotion.tsx');
+  const framed = src.slice(src.indexOf('const Framed'), src.indexOf('(window as any).StudioPlayer ='));
+  const js = esbuild.transformSync(framed, {loader:'tsx', target:'es2022'}).code;
+  const Framed = vm.runInNewContext(js + '\nFramed', {React, comp:{component:Project}});
+  const render = reactRoot();
+  const draw = (frame, title = 'Plan A', theme = 'jour') => render(React.createElement(frameContext.Provider, {value:frame},
+    React.createElement(themeContext.Provider, {value:theme}, React.createElement(Framed, {title}))));
+  try {
+    for (let n = 0; n < 60; n++) { draw(n); assert.equal(last[3], n); }
+    assert.equal(rootRenders, 1, 'L’enveloppe coûteuse est reconstruite alors que ses props sont identiques');
+    draw(60, 'Plan B'); assert.deepEqual(last, ['Plan B', 0, 'jour', 60]);
+    draw(61, 'Plan B', 'nuit'); assert.deepEqual(last, ['Plan B', 0, 'nuit', 61]);
+    updateLocal(7); draw(62, 'Plan B', 'nuit'); assert.deepEqual(last, ['Plan B', 7, 'nuit', 62]);
+  } finally { render(null); }
+});
 function montage() {
   const c = contexte(), seq = React.createContext(null);
   let serial = 0, frame = 130;
