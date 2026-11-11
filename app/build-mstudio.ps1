@@ -47,4 +47,7 @@ $picker = Join-Path $PSScriptRoot 'Launcher.cs'
 $language = Join-Path $PSScriptRoot 'Lang.cs'
 & $csc /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 /define:MSTUDIO /main:MStudioProgram "/out:$output\MStudio.exe" "/win32icon:$PSScriptRoot\mstudio.ico" "/win32manifest:$PSScriptRoot\mstudio.manifest" @references $launcher $picker $language
 if ($LASTEXITCODE) { throw 'MStudio.exe failed to compile.' }
+$assistant = Join-Path $PSScriptRoot 'MStudio.Update.cs'
+& $csc /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 "/out:$output\MStudio.Update.exe" "/win32icon:$PSScriptRoot\mstudio.ico" "/win32manifest:$PSScriptRoot\mstudio.manifest" /r:System.dll /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll $assistant
+if ($LASTEXITCODE) { throw 'MStudio.Update.exe failed to compile.' }
 Write-Output "$output/MStudio.exe"

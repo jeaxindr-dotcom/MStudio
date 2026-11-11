@@ -65,7 +65,7 @@
       } if (n0) { HIST.last = JSON.stringify(notes); persist(); } }
       if (SNAP) { DUR = SNAP.frames / FPS; FRAMES = SNAP.frames; view = { a: 0, b: DUR }; }
       STATUS = { lots: [], agent: META.agent, code: META.code, timeline: {}, plans: META.plans ?? {} }; onStatus();
-      restoreDrafts();   // (what was being typed before a reload of this tab)
+      await restoreDrafts();   // (what was being typed before a reload or desktop update)
       buildLanes(); setTab(tabR, false); setTab(tabL, false); fitMedia(); resize(); renderAll(); updateHud();
       loadLive();
       setSave(notes.length ? T('st.start.loaded', { n: notes.length }) : T('st.start.ready'), 'ok');

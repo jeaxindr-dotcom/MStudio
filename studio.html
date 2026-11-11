@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/studio.css">
 <link rel="stylesheet" href="/studio-tools.css">
+<link rel="stylesheet" href="/app-update.css">
 <!--I18N-->
 </head>
 <body data-product="{{common.productName}}">
@@ -26,6 +27,7 @@
   <button id="workspaceButton" aria-haspopup="dialog" aria-controls="workspaceDialog"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m0-5h12"/></svg><span id="workspaceButtonName"></span><span class="ws-chevron" aria-hidden="true"></span></button>
   <button id="studioCommands" aria-keyshortcuts="Control+K Meta+K"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><kbd>Ctrl K</kbd></button>
   <button id="helpBtn" title="{{st.help.title}}" aria-label="{{st.help.aria}}"><i data-ic="question"></i></button>
+  <button type="button" id="appUpdateButton" class="soft" aria-haspopup="dialog" aria-controls="appUpdateDialog" title="{{common.appUpdate.title}}" aria-label="{{common.appUpdate.title}}" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 8a7.3 7.3 0 0 1 12.2-2.1L20 9M4 15l2.2 3.1A7.3 7.3 0 0 0 18.4 16"/></svg><span>{{common.appUpdate.label}}</span></button>
   <button id="renderPill" title="{{st.pill.title}}"><span class="t">{{st.rc.render}}</span><span class="mini"><i></i></span></button>
   <button id="agent" title="{{st.agent.title}}"><span class="dot"></span><span class="t">{{st.agent.connect}}</span></button>
   <button id="hdrGo" title="{{menu.render}}"><i data-ic="film"></i><span class="t">{{st.rc.render}}</span></button>
@@ -121,10 +123,14 @@
           <div id="hoverTag"></div>
           <button id="pickBtn" class="primary" title="{{st.pick.title}}">{{st.pick.text}}</button>
           <div id="pop">
-            <div class="t" id="popT"></div>
-            <textarea id="popTx" placeholder="{{st.pop.placeholder}}"></textarea>
-            <div class="tg" id="popTg"></div>
-            <div class="b"><button id="popClear" class="danger">{{st.pop.clear}}</button><button id="popCancel">{{st.pop.cancel}}</button><button id="popOk" class="primary">{{st.pop.ok}}</button></div>
+            <div class="pop-layout">
+              <div class="pop-fields">
+                <div class="t" id="popT"></div>
+                <textarea id="popTx" placeholder="{{st.pop.placeholder}}"></textarea>
+                <div class="tg" id="popTg"></div>
+              </div>
+              <div class="b"><button id="popClear" class="danger">{{st.pop.clear}}</button><button id="popCancel">{{st.pop.cancel}}</button><button id="popOk" class="primary">{{st.pop.ok}}</button></div>
+            </div>
           </div>
         </div>
         <div id="shuttle"></div>
@@ -279,6 +285,7 @@
 <input type="file" id="filePick" accept="image/*" multiple hidden>
 <script src="/menubar.js"></script>
 <script src="/shortcuts.js"></script>
+<script src="/app-update-ui.js"></script>
 <script src="/studio.js"></script>
 <script src="/medias.js"></script>
 </body>

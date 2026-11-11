@@ -19,7 +19,9 @@ Sur [l’animation de Lucas Vieira publiée dans le domaine public](https://comm
 
 ## Installer et ouvrir
 
-Télécharge et lance `MStudio-Setup-0.2.3-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
+Pour une première installation, télécharge et lance `MStudio-Setup-0.2.4-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
+
+Pour les versions suivantes, clique sur **Mise à jour** dans la bibliothèque ou dans un projet ouvert. Choisis **Télécharger la mise à jour** pour récupérer et vérifier l’installeur depuis GitHub. **Installer à la fermeture de MStudio** te laisse finir ton travail avant de fermer le logiciel.
 
 ## Utiliser les sources
 

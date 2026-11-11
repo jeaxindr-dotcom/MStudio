@@ -19,9 +19,12 @@ import {promisify} from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
-import { optionsFrom, readJson, stamp } from './lib/episode.mjs';
+import { optionsFrom, episode, readJson, stamp } from './lib/episode.mjs';
 import { STUDIO, INSTALLED, CACHE, DATA } from './lib/place.mjs';
-import { APP_NAME, MSTUDIO, ENGINE_DIR, HUB_PORT, LAST_HUB_PORT, processIdentity, assertReviewAvailable } from './lib/app-profile.mjs';
+import { APP_NAME, APP_VERSION, MSTUDIO, ENGINE_DIR, HUB_PORT, LAST_HUB_PORT, processIdentity, assertReviewAvailable } from './lib/app-profile.mjs';
+import { createAppUpdates } from './lib/app-updates.mjs';
+import { installationStatus, scheduleAppUpdate } from './lib/app-update-install.mjs';
+import { createUpdateController, installedUpdateTarget, updateAction, updateRequestStatus } from './lib/app-update-api.mjs';
 import { ffmpeg, sweepStaleTemp } from './lib/frames.mjs';
 import { renderState } from './lib/render.mjs';
 import { registry, importProject, removeProject, project, revueOf, folderOf, setFolder, renameFolder } from './lib/projects.mjs';
@@ -316,6 +319,32 @@ const reverseOptions = {
 };
 const reverseJobs = createReverseJobs(reverseOptions);
 const reconstructionJobs = createReconstructionJobs(reverseOptions);
+async function checkUpdateIdle() {
+  const blocked = () => Object.assign(new Error(t('common.appUpdate.busyWork')), {status:409});
+  if (reverseJobs.hasActiveWork() || reconstructionJobs.hasActiveWork() ||
+      [scanState(), installState(), homeUpdateState()].some(job => job?.state === 'running')) throw blocked();
+  await Promise.all([...studios].map(async ([id, studio]) => {
+    if (studio.paused || studio.proc.exitCode !== null || studio.proc.signalCode !== null) {
+      const review = id.startsWith('P') ? revueOf(id) : episode(id, O).REVUE;
+      if (review && renderState({REVUE:review})?.state === 'running') throw blocked();
+      return;
+    }
+    if (!studio.url) throw blocked();
+    try {
+      const res = await fetch(new URL('/api/app-update/activity', studio.url), {redirect:'error', signal:AbortSignal.timeout(3500)});
+      if (!res.ok || (await res.json()).busy !== false) throw blocked();
+    } catch { throw blocked(); }
+  }));
+}
+const appUpdates = MSTUDIO && installedUpdateTarget(STUDIO) ? createUpdateController({
+  updates:createAppUpdates({version:APP_VERSION, dir:path.join(DATA, 'updates')}),
+  installation:() => installationStatus(DATA),
+  schedule:(file, projectId) => scheduleAppUpdate({
+    installerPath:file.path, sha256:file.sha256, version:file.version,
+    appDir:STUDIO, dataDir:DATA, projectId, language:lang(),
+  }),
+  checkIdle:checkUpdateIdle,
+}) : null;
 async function reverseRequest(pn,url,req,res) {
   const post = req.method === 'POST', get = req.method === 'GET';
   try {
@@ -367,9 +396,19 @@ const server = http.createServer(async (req, res) => {
       return json(res, { ok: true, lang: now, forced: langSource() === 'env' });
     }
     if (pn === '/api/lang') return json(res, { lang: lang(), source: langSource(), langs: LANGS });
+    const operation = updateAction(pn);
+    if (operation) {
+      if (!appUpdates) return json(res, {error:'unavailable'}, 404);
+      const code = updateRequestStatus(req, operation);
+      if (code !== 200) return json(res, {error:'invalid-request'}, code);
+      try {
+        const projectId = ep && studios.has(ep) ? ep : null;
+        return json(res, await appUpdates.run(operation, projectId));
+      } catch (error) { return json(res, {error:error.message}, error.status || 409); }
+    }
     // the menu bar (menubar.js): documents, About, the online documentation, the home screen's log
     if (pn === '/hub-library.css') return send(res, 200, 'text/css; charset=utf-8', fs.readFileSync(path.join(STUDIO, 'page', 'hub-library.css')));
-    if (['/reverse-ui.js','/reconstruct-ui.js','/reverse.css'].includes(pn)) return send(res,200,pn.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8',fs.readFileSync(path.join(STUDIO,'page',pn.slice(1))));
+    if (['/reverse-ui.js','/reconstruct-ui.js','/reverse.css','/app-update-ui.js','/app-update.css'].includes(pn)) return send(res,200,pn.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8',fs.readFileSync(path.join(STUDIO,'page',pn.slice(1))));
     if (pn.startsWith('/api/reverse/')) return reverseRequest(pn,url,req,res);
     if (pn === '/menubar.js') return send(res, 200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(STUDIO, 'menubar.js')));
     // « Raccourcis clavier » (shortcuts.js): the user's keys, the same here and in every studio (settings.json)

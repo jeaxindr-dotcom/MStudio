@@ -239,18 +239,22 @@
   #hoverTag .k { color: var(--lime); margin-left: 7px; font-weight: 500; }
   #pickBtn { display: none; line-height: 1; height: 34px; padding: 0 14px; }
   #pickBtn kbd { background: rgba(0, 0, 0, 0.14); color: #10140a; }
-  #pop { position: absolute; display: none; width: 330px; background: rgba(16, 18, 28, 0.78); backdrop-filter: blur(22px) saturate(160%); border: 1px solid var(--stroke-2); border-radius: 20px;
+  #pop { position: absolute; display: none; width: min(360px, calc(100% - 12px)); overflow-wrap: anywhere; background: rgba(16, 18, 28, 0.78); backdrop-filter: blur(22px) saturate(160%); border: 1px solid var(--stroke-2); border-radius: 20px;
     padding: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); z-index: 6; line-height: 1.5; }
+  #pop .pop-layout { display: flex; flex-direction: column; max-height: calc(var(--pop-space, 100vh) - 30px); }
+  #pop .pop-fields { overflow-y: auto; min-height: 0; }
   #pop .t { font-size: 12px; color: var(--s9); margin-bottom: 10px; }
   #pop .t b { color: var(--s12); font: 600 13px var(--font-d); margin-right: 2px; }
   #pop textarea { width: 100%; min-height: 70px; resize: vertical; background: rgba(0, 0, 0, 0.28); color: var(--s12); border: 1px solid var(--stroke); border-radius: 14px; padding: 10px 12px; font: 13.5px/1.5 var(--font); }
   #pop textarea:focus { outline: none; border-color: rgba(201, 242, 107, 0.45); box-shadow: 0 0 0 3px rgba(201, 242, 107, 0.08); }
-  #pop .tg { display: flex; align-items: center; gap: 8px; font: 600 12.5px var(--font-d); color: var(--s12); margin: 10px 2px 12px; min-height: 18px; }
+  #pop .tg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font: 600 12.5px var(--font-d); color: var(--s12); margin: 10px 2px 12px; min-height: 18px; }
   #pop .tg .dot { background: var(--lime); box-shadow: 0 0 10px var(--lime); }
   #pop .tg[data-state="busy"] .dot { animation: pulse 1s ease-in-out infinite; }
   #pop .tg .k { color: var(--s9); font: 500 12px var(--font); }
   @keyframes pulse { 50% { opacity: .25; } }
-  #pop .b { display: flex; gap: 6px; justify-content: flex-end; }
+  #pop .b { display: flex; flex: none; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  #pop .b button { max-width: 100%; padding-inline: 10px; }
+  #popClear { margin-inline-end: auto; }
   /* the dictation (page/studio/17-dictate.js): « Je t'écoute… », the level of the voice, how to end it */
   #dictee { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 40; display: none; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-radius: 999px;
     background: rgba(18, 20, 30, 0.88); border: 1px solid var(--stroke-2); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45); font-size: 12.5px; color: var(--s11); white-space: nowrap; max-width: calc(100% - 32px); }

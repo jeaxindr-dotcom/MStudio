@@ -41,7 +41,8 @@ english.DestinationError=MStudio must be installed in this user’s MStudio prog
 
 [Files]
 Source: "{#WebViewInstaller}"; Flags: dontcopy nocompression
-Source: "{#SourceRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs solidbreak
+Source: "{#SourceRoot}\*"; Excludes: "\runtime\node.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs solidbreak
+Source: "{#SourceRoot}\runtime\node.exe"; DestDir: "{app}\runtime"; Flags: ignoreversion; Check: NeedNodeRuntime
 
 [Icons]
 Name: "{userprograms}\MStudio"; Filename: "{app}\MStudio.exe"; WorkingDir: "{app}"; AppUserModelID: "MStudio.Desktop"
@@ -51,6 +52,18 @@ Name: "{userdesktop}\MStudio"; Filename: "{app}\MStudio.exe"; WorkingDir: "{app}
 Filename: "{app}\MStudio.exe"; WorkingDir: "{app}"; Description: "{cm:LaunchMStudio}"; Flags: postinstall nowait skipifsilent
 
 [Code]
+// A separate studio-cli wait session may still use this executable. Keep its
+// file mapping when this release packages the exact same runtime.
+function NeedNodeRuntime(): Boolean;
+var
+  Target: String;
+begin
+  Target := ExpandConstant('{app}\runtime\node.exe');
+  Result := True;
+  if FileExists(Target) then
+    Result := CompareText(GetSHA256OfFile(Target), '{#BundledNodeSha256}') <> 0;
+end;
+
 function WebViewInstalledAt(Root: Integer): Boolean;
 var
   Version: String;

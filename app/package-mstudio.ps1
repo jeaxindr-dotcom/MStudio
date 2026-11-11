@@ -13,7 +13,7 @@ if (-not $OutputDir) { $OutputDir = Join-Path $root '.cache/mstudio-release' }
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 [void][IO.Directory]::CreateDirectory($downloads)
 [void][IO.Directory]::CreateDirectory($OutputDir)
-$version = '0.2.3'
+$version = '0.2.4'
 
 function Get-Archive([string]$FileName, [string]$Url, [string]$Hash) {
     $file = Join-Path $downloads $FileName
@@ -119,7 +119,8 @@ try {
     [void][IO.Directory]::CreateDirectory($compileDir)
     $compiler = Join-Path $inno 'tools/ISCC.exe'
     $log = Join-Path $build 'compiler.log'
-    & $compiler /Qp "/DProductVersion=$version" "/DSourceRoot=$bundle" "/DReleaseDir=$compileDir" "/DWebViewInstaller=$webview" (Join-Path $definition 'setup.iss') *> $log
+    $runtimeDigest = (Get-FileHash -LiteralPath (Join-Path $runtime 'node.exe') -Algorithm SHA256).Hash
+    & $compiler /Qp "/DProductVersion=$version" "/DSourceRoot=$bundle" "/DBundledNodeSha256=$runtimeDigest" "/DReleaseDir=$compileDir" "/DWebViewInstaller=$webview" (Join-Path $definition 'setup.iss') *> $log
     if ($LASTEXITCODE -ne 0) { Get-Content -Tail 18 -LiteralPath $log; throw "Installer compilation failed. See $log." }
     $name = "MStudio-Setup-$version-win-x64.exe"
     $setup = Join-Path $OutputDir $name

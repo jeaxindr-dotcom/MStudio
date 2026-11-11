@@ -192,6 +192,7 @@
 </style>
 <link rel="stylesheet" href="/hub-library.css">
 <link rel="stylesheet" href="/reverse.css">
+<link rel="stylesheet" href="/app-update.css">
 <!--I18N-->
 </head>
 <body data-product="{{common.productName}}">
@@ -202,6 +203,7 @@
   <!-- inside a studio (its « Accueil »): the way back to it -->
   <button class="soft" id="backStudio" hidden></button>
   <span class="grow"></span>
+  <button type="button" id="appUpdateButton" class="soft" aria-haspopup="dialog" aria-controls="appUpdateDialog" title="{{common.appUpdate.title}}" aria-label="{{common.appUpdate.title}}" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 8a7.3 7.3 0 0 1 12.2-2.1L20 9M4 15l2.2 3.1A7.3 7.3 0 0 0 18.4 16"/></svg><span>{{common.appUpdate.label}}</span></button>
   <span class="langs" id="langs" title="Langue · Language"><button data-l="fr">FR</button><button data-l="en">EN</button></span>
   <span class="pill" id="where"><span class="dot"></span>{{hub.where}}</span>
   <button id="newBtn" title="{{hub.new.buttonTitle}}"><span aria-hidden="true">＋</span>{{hub.new.button}}</button>
@@ -239,6 +241,7 @@
 </div>
 <script src="/menubar.js"></script>
 <script src="/shortcuts.js"></script>
+<script src="/app-update-ui.js"></script>
 <script src="/reverse-ui.js"></script>
 <script src="/reconstruct-ui.js"></script>
 <script>
@@ -925,7 +928,7 @@
   ]);
   // the keys of shortcuts.js (Aide › Raccourcis clavier: the defaults, or the user's own), the ones of the home screen
   window.addEventListener('keydown', (e) => {
-    if (document.querySelector('#reverseDialog[open],#reconstructDialog[open]')) return;
+    if (document.querySelector('#reverseDialog[open],#reconstructDialog[open],#appUpdateDialog[open]')) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k' && !document.querySelector('.mb-dlg, dialog[open]')) {
       e.preventDefault(); $('#projectSearch').focus(); $('#projectSearch').select();
     }

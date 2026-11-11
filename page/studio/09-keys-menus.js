@@ -126,7 +126,9 @@
   window.addEventListener('message', (e) => {
     if (!META?.hub || e.origin !== new URL(META.hub).origin) return;
     const d = e.data ?? {};
-    if (d.coulisses === 'close') hubClose();
+    if (d.coulisses === 'app-update' && e.source === $('#hubOv')?.contentWindow && hubOpen()) {
+      hubClose(); document.getElementById('appUpdateButton')?.click();
+    } else if (d.coulisses === 'close') hubClose();
     else if (d.coulisses === 'open' && typeof d.url === 'string') { const u = new URL(d.url, META.hub); if (u.origin === location.origin) hubClose(); else leave(u.href); }
   });
   // loaded beforehand, once the studio is settled (a few seconds after it opened): the first « Accueil » is instant too

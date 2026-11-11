@@ -155,24 +155,34 @@
 
   // ---------- the « what should change here? » box ----------
   let pickJob = 0;
-  function openPop(mark, frame, evidence = null, source = mode) {
-    const keep = popFor ? $('#popTx').value : '';
-    popFor = { mark, frame, target: popFor?.frame === frame ? popFor.target : null, source,
-      evidence:evidence || (popFor?.frame === frame && popFor.evidence) || previewNoteReadiness(frame) };
+  function positionPop() {
+    if (!popFor) return;
+    const {mark} = popFor;
     const pop = $('#pop'), all = mark.kind === 'pin' ? mark.points : mark.strokes.flat(), v = visBox();   // the part of the image on screen
     const [x0, y0] = toPx([Math.min(...all.map((p) => p[0])) - 30, Math.min(...all.map((p) => p[1])) - 30]);
     const [x1, y1] = toPx([Math.max(...all.map((p) => p[0])) + 30, Math.max(...all.map((p) => p[1])) + 30]);
-    pop.style.display = 'block';
+    pop.style.setProperty('--pop-space', Math.max(0, v.y1 - v.y0 - 12) + 'px');
     const pw = pop.offsetWidth, ph = pop.offsetHeight;
     let left, top = Math.max(v.y0 + 6, Math.min(v.y1 - ph - 6, y0));
     if (x1 + 10 + pw <= v.x1) left = x1 + 10;
     else if (x0 - 10 - pw >= v.x0) left = x0 - 10 - pw;
     else { left = Math.max(v.x0 + 6, Math.min(v.x1 - pw - 6, x0)); top = y1 + 10 + ph <= v.y1 ? y1 + 10 : Math.max(v.y0 + 6, y0 - 10 - ph); }
+    left = Math.max(v.x0 + 6, Math.min(v.x1 - pw - 6, left));
+    top = Math.max(v.y0 + 6, Math.min(v.y1 - ph - 6, top));
     pop.style.left = left / VZ.k + 'px'; pop.style.top = top / VZ.k + 'px';   // in the image's own pixels (zoomed: /k)
+  }
+  const popResize = new ResizeObserver(positionPop);
+  popResize.observe($('#pop')); popResize.observe($('#stage'));
+  function openPop(mark, frame, evidence = null, source = mode) {
+    const keep = popFor ? $('#popTx').value : '';
+    popFor = { mark, frame, target: popFor?.frame === frame ? popFor.target : null, source,
+      evidence:evidence || (popFor?.frame === frame && popFor.evidence) || previewNoteReadiness(frame) };
     const c = contextAt(frame);
     $('#popT').innerHTML = T('st.pop.head', { what: mark.kind === 'pin' ? T('st.pop.pin') : T('st.pop.draw', { n: mark.strokes.length }), f: frame, scene: c.scene ? ' · ' + esc(c.scene) : '', code: mode === 'code' ? T('st.pop.code') : '' });
     $('#popClear').style.display = mark.kind === 'pin' ? 'none' : '';
     $('#popTx').value = keep;
+    $('#pop').style.display = 'block';
+    positionPop();
     $('#popTx').focus();
     drawOv();
     identify(mark, frame);

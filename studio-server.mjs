@@ -43,7 +43,9 @@ import { codePlaybackSources } from './lib/code-playback-sources.mjs';
 import { timelineCodeThumbnails } from './lib/timeline-code-thumbnails.mjs';
 import { peaksOf } from './lib/peaks.mjs';
 import { CACHE, DEFAULT_PORT, INSTALLED } from './lib/place.mjs';
-import { MSTUDIO, LAST_PORT, processIdentity, isOwnStudio, assertReviewAvailable } from './lib/app-profile.mjs';
+import { MSTUDIO, APP_DATA, APP_VERSION, LAST_PORT, processIdentity, isOwnStudio, assertReviewAvailable } from './lib/app-profile.mjs';
+import { installedUpdateTarget, relayUpdate, updateAction, updateRequestStatus } from './lib/app-update-api.mjs';
+import { projectUpdateDrafts } from './lib/app-update-drafts.mjs';
 import { project, tracksOf, shotsUsedIn } from './lib/projects.mjs';
 import { genericTimelineBuilder, normalizeTimeline } from './lib/remotion-module.mjs';
 import { hfPlayerBuilder, hfTimelineBuilder, hfFor, hfComposition, injectHead } from './lib/hyperframes.mjs';
@@ -66,6 +68,7 @@ import { chatAvailable, imageModel, readChat, sendChat, stopJob, sortInbox, auto
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
+const updateHub = args.includes('--hub') && MSTUDIO && installedUpdateTarget(HERE) ? args[args.indexOf('--hub') + 1] : null;
 const epArg = args.find((a) => /^E\d+$/i.test(a)), projArg = args.includes('--project') ? args[args.indexOf('--project') + 1] : null;
 if (!epArg && !projArg) { console.error(t('srv.usage')); process.exit(1); }
 const P = projArg ? project(projArg) : episode(epArg, optionsFrom(args));
@@ -75,6 +78,7 @@ const HFP = P.kind === 'hyperframes';   // a HyperFrames project (.coulisses mot
 const CODE = B || G || HFP;
 const XP = G || HFP;                    // a project exported from the studio (its export script, or « hyperframes render »)
 const { ep, folder, EP, REVUE, NOTES, REPLIES, SNAP, IMAGES, PROXY, PROXY_INFO } = P;
+const updateDrafts = updateHub ? projectUpdateDrafts(APP_DATA, NOTES, APP_VERSION) : null;
 const LOCK = path.join(REVUE, 'studio.lock.json');
 const ownStudiosOnly = MSTUDIO || process.env.COULISSES_V2_OWN_STUDIOS === '1';
 // An isolated hub may import an existing review. Check before making its media
@@ -291,6 +295,7 @@ function meta() {
     snapshotMatches: !!(snapshot?.video && render && snapshot.video.size === render.size),
     proxy: proxyState === 'ready' && !proxyFresh(P) ? 'stale' : proxyState,
     notesFile: NOTES, maxEdits: MAX_EDITS, plans: plansNow(), workArea: readJson(WORK_AREA, null),
+    ...(updateDrafts?.exists() ? {hasUpdateDraft:true} : {}),
     code: { status: player.state.status, version: player.state.version, hash: player.state.hash, error: player.state.error, builtAt: player.state.builtAt },
     agent: agentState(), connectLine: connectLine(P),
     hub: args.includes('--hub') ? args[args.indexOf('--hub') + 1] : null, held,
@@ -545,6 +550,39 @@ const server = http.createServer(async (req, res) => {
   let pn; try { pn = decodeURIComponent(url.pathname); } catch { res.writeHead(400); return res.end('bad address'); }
   try {
     if (pn === '/api/ping') return json(res, { studio: true, pid: process.pid, notesFile: NOTES, ...(MSTUDIO ? processIdentity() : {}) });
+    if (pn === '/app-update-ui.js' || pn === '/app-update.css') return sendFile(req, res, path.join(HERE, 'page', pn.slice(1)), pn.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8');
+    if (pn === '/api/app-update-draft') {
+      if (!updateDrafts) return json(res, {}, 404);
+      const read = req.method === 'GET';
+      const code = updateRequestStatus(req, read ? 'state' : 'write');
+      if (code !== 200) return json(res, {}, code);
+      if (read) return json(res, updateDrafts.read());
+      let command;
+      try { command = JSON.parse(await body(req, 8 * 1024 * 1024)); }
+      catch { return json(res, {}, 400); }
+      try { return json(res, updateDrafts.change(command)); }
+      catch (error) { return json(res, {}, error.status || 500); }
+    }
+    if (pn === '/api/app-update/activity') {
+      if (!updateHub) return json(res, {error:'unavailable'}, 404);
+      const code = updateRequestStatus(req, 'state');
+      if (code !== 200) return json(res, {error:'invalid-request'}, code);
+      const range = CODE_PLAYBACK?.status();
+      const working = [renderState(P), XP && exportState(P), G && shotState(P), speedState(P)].some(job => job?.state === 'running');
+      const preparing = range?.active || range?.jobs?.some(job => ['queued','preparing'].includes(job.status)) ||
+        [...playbackOwners.values()].some(owner => owner.pending);
+      return json(res, {busy:!!(held || working || preparing)});
+    }
+    const operation = updateAction(pn);
+    if (operation) {
+      if (!updateHub) return json(res, {error:'unavailable'}, 404);
+      const code = updateRequestStatus(req, operation);
+      if (code !== 200) return json(res, {error:'invalid-request'}, code);
+      try {
+        const reply = await relayUpdate(updateHub, operation, ep);
+        return json(res, reply.data, reply.status);
+      } catch { return json(res, {error:t('common.appUpdate.libraryUnavailable')}, 503); }
+    }
     if (pn === '/' || pn === '/index.html') {   // in the user's language (lib/i18n.mjs: {{key}} and window.T)
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
       const html = renderPage(fs.readFileSync(path.join(HERE, 'studio.html'), 'utf8'), { prefixes: ['st.', 'common.', 'menu.'] });
@@ -829,7 +867,7 @@ const server = http.createServer(async (req, res) => {
       if (entry && entry.requestKey !== requestKey) return json(res, { error: 'Ce propriétaire a déjà demandé une autre plage ou résolution.' }, 409);
       if (!entry) {
         if (playbackOwners.size >= 1000) return json(res, { error: 'Trop de demandes dans cette session.' }, 429);
-        entry = { id: null, promise: null, requestKey };
+        entry = { id: null, promise: null, requestKey, pending: true };
         playbackOwners.set(b.owner, entry);
         entry.promise = (async () => {
           if (b.version !== player.state.version) throw new Error('La version demandée a changé.');
@@ -839,7 +877,7 @@ const server = http.createServer(async (req, res) => {
           const state = await CODE_PLAYBACK.request({ from: b.from, to: b.to, scale: b.scale }); entry.id = state.id;
           if (entry.cancelled) { await releasePlaybackOwner(entry); throw new Error('Préparation annulée.'); }
           return state;
-        })();
+        })().finally(() => { entry.pending = false; });
       }
       try { return json(res, await entry.promise); }
       catch (e) { return json(res, { error: e.message }, 409); }

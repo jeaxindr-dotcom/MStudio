@@ -19,7 +19,9 @@ Tested with [Lucas Vieira’s public-domain animation](https://commons.wikimedia
 
 ## Windows installation
 
-Download and run `MStudio-Setup-0.2.3-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
+For a first installation, download and run `MStudio-Setup-0.2.4-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
+
+For subsequent versions, click **Update** in the library or an open project. Choose **Download update** to download and verify the installer from GitHub. **Install when MStudio closes** lets you finish your work before closing the app.
 
 ## Work with the project
 

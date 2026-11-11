@@ -436,23 +436,86 @@
   // under the queue): kept for this tab when the page goes (a reload by the agent — new video, first export —, Fichier ›
   // Actualiser, F5), given back at the start (code review 18/10/2026: lost at each automatic reload)
   const draftKey = () => `coulisses-drafts:${META?.notesFile ?? location.port}`;
+  const draftEndpoint = '/api/app-update-draft';
+  let updateDraft = null, updateDraftTimer, typingTimer;
+  function draftSnapshot() {
+    const d = {pending:{}, agent:$('#agentText')?.value ?? '', words:$('#qwords')?.value ?? ''};
+    for (const [id, p] of Object.entries(pending)) if (p?.text?.trim() || p?.images?.length) d.pending[id] = p;
+    return (Object.keys(d.pending).length || d.agent.trim() || d.words.trim()) ? d : null;
+  }
   function keepDrafts() {
-    try {
-      const d = { pending: {}, agent: $('#agentText')?.value ?? '', words: $('#qwords')?.value ?? '' };
-      for (const [id, p] of Object.entries(pending)) if (p?.text?.trim() || p?.images?.length) d.pending[id] = p;
-      if (Object.keys(d.pending).length || d.agent.trim() || d.words.trim()) sessionStorage.setItem(draftKey(), JSON.stringify(d)); else sessionStorage.removeItem(draftKey());
-    } catch { /* private window: as before */ }
+    const draft = draftSnapshot();
+    try { if (draft) sessionStorage.setItem(draftKey(), JSON.stringify(draft)); else sessionStorage.removeItem(draftKey()); } catch { /* private window */ }
   }
-  function restoreDrafts() {
-    try {
-      const d = JSON.parse(sessionStorage.getItem(draftKey()) ?? 'null'); sessionStorage.removeItem(draftKey());
-      if (!d) return;
-      for (const [id, p] of Object.entries(d.pending ?? {})) if (byId(id) && !pending[id]) pending[id] = p;
-      if (d.agent && !$('#agentText').value) $('#agentText').value = d.agent;
-      if (d.words && !$('#qwords').value) $('#qwords').value = d.words;
-    } catch { /* */ }
+  function applyDraft(d) {
+    if (!d) return;
+    for (const [id, p] of Object.entries(d.pending ?? {})) if (byId(id) && !pending[id]) pending[id] = p;
+    if (d.agent && !$('#agentText').value) $('#agentText').value = d.agent;
+    if (d.words && !$('#qwords').value) $('#qwords').value = d.words;
   }
-  window.addEventListener('pagehide', keepDrafts);
+  async function draftRequest(command, keepalive = false) {
+    const options = command ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(command), keepalive} : {};
+    try {
+      const response = await fetch(draftEndpoint, {...options, cache:'no-store'});
+      if (response.ok) return await response.json();
+    } catch { /* report in the user's language */ }
+    throw new Error(T('common.appUpdate.storeDrafts'));
+  }
+  function startUpdateDraft(record) {
+    const saved = JSON.stringify(record.draft);
+    updateDraft = {id:record.id, seq:record.seq, saved, sent:saved};
+    clearInterval(updateDraftTimer);
+    updateDraftTimer = setInterval(() => checkpointUpdateDraft(false), 1000);
+  }
+  function checkpointUpdateDraft(leaving, event) {
+    const record = updateDraft;
+    if (!record) return;
+    const draft = draftSnapshot(), text = JSON.stringify(draft);
+    if (text === record.sent && (!leaving || text === record.saved)) return;
+    const seq = ++record.seq;
+    const command = {action:'save', id:record.id, seq, draft};
+    const keepalive = leaving && new Blob([JSON.stringify(command)]).size < 60000;
+    if (leaving && !keepalive && event) { event.preventDefault(); event.returnValue = ''; }
+    record.sent = text;
+    draftRequest(command, keepalive).then(result => {
+      if (seq === record.seq && result?.applied) record.saved = text;
+    }).catch(() => { if (seq === record.seq) record.sent = undefined; });
+  }
+  async function restoreDrafts() {
+    try {
+      applyDraft(JSON.parse(sessionStorage.getItem(draftKey()) || 'null')); sessionStorage.removeItem(draftKey());
+    } catch { /* private window */ }
+    if (!META?.hasUpdateDraft) return;
+    try {
+      const record = await draftRequest();
+      if (!record) return;
+      applyDraft(record.draft);
+      if (record.sameVersion) startUpdateDraft(record); // e.g. F5 before closing for the installation
+      else {
+        keepDrafts();
+        await draftRequest({action:'clear', id:record.id, seq:record.seq});
+      }
+    } catch { /* the file stays available for the next open */ }
+  }
+  window.addEventListener('beforeunload', event => checkpointUpdateDraft(true, event));
+  window.addEventListener('pagehide', () => { keepDrafts(); checkpointUpdateDraft(true); });
+  document.addEventListener('input', event => {
+    if (!updateDraft || !event.target.matches('#agentText, #qwords, textarea.rep')) return;
+    clearTimeout(typingTimer); typingTimer = setTimeout(() => checkpointUpdateDraft(false), 120);
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) checkpointUpdateDraft(true); });
+  window.MStudioBeforeUpdate = async () => {
+    if ((dirty || saving) && !(await flushNow())) throw new Error(T('st.save.failed'));
+    const draft = draftSnapshot();
+    const record = await draftRequest({action:'begin', draft});
+    keepDrafts(); startUpdateDraft({...record, draft});
+  };
+  window.MStudioUpdateRefused = async () => {
+    const record = updateDraft;
+    if (!record) return;
+    clearInterval(updateDraftTimer); updateDraft = null;
+    await draftRequest({action:'clear', id:record.id, seq:record.seq}).catch(() => {});
+  };
   // a reload asked by the page itself (a new video, the first export, the language, Fichier › Actualiser): only once the
   // notes are saved — never over changes the server did not take (they would be lost); false: not reloaded, said
   async function reloadSafely(f = curFrame()) {
