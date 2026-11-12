@@ -40,6 +40,42 @@ test('G4 : les événements d’une autre génération sont ignorés', () => {
   const f = remote(); f.receive({v: '1', ev: {type: 'frame', frame: 250, seen: 999}});
   assert.equal(f.api.frame(), 12);
 });
+test('Un déplacement répété garde la confirmation exacte, un aller-retour attend la dernière réponse', () => {
+  const f = remote();
+  const report = (frame, seen) => f.receive({state: {frame, seen, ready: true,
+    readiness: {frame, verified: true, state: 'ready', version: 2, hash: 'bundle-2'}}});
+  report(12, 0);
+  f.api.seek(12);
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.api.frameReadiness().verified, true);
+  f.api.seek(25); const first = f.sent.at(-1).id;
+  f.api.seek(25); assert.equal(f.sent.length, 1);
+  f.api.seek(12); const last = f.sent.at(-1).id;
+  assert.equal(f.sent.length, 2);
+  report(25, first);
+  assert.equal(f.api.frame(), 12);
+  const pending = f.api.frameReadiness();
+  assert.equal(pending.frame, 12); assert.equal(pending.verified, false); assert.equal(pending.reason, 'frame-not-confirmed');
+  report(25, last);   // The reader received the command; React has not painted its target.
+  f.receive({ev: {type: 'frame', frame: 25, seen: last}});
+  assert.equal(f.api.frame(), 12); assert.equal(f.api.frameReady(), false);
+  assert.equal(f.api.frameReadiness().frame, 25); assert.equal(f.api.frameReadiness().verified, false);
+  report(12, last);
+  assert.equal(f.api.frameReadiness().verified, true);
+  f.receive({state: {seen: last, frame: 12, readiness: null}});
+  assert.equal(f.api.frameReadiness(), null);
+});
+test('La lecture continue accepte une image déjà avancée après le seek', () => {
+  const f = remote();
+  const playing = (frame, seen) => f.receive({state: {frame, seen, playing: true, ready: true,
+    readiness: {frame, state: 'ready', verified: true}}});
+  playing(12, 0);
+  f.api.seek(12);
+  assert.equal(f.sent.at(-1).call, 'seek');
+  assert.equal(f.api.frameReadiness().verified, false);
+  playing(13, f.sent.at(-1).id);
+  assert.equal(f.api.frame(), 13); assert.equal(f.api.frameReadiness().frame, 13); assert.equal(f.api.frameReady(), true);
+});
 test('G14 : trente secondes de silence produisent un seul diagnostic', () => {
   const f = remote(), events = []; f.api.on((e) => events.push(e));
   for (let n = 0; n < 33; n++) { f.advance(1000); for (const t of f.intervals) t.fn(); }

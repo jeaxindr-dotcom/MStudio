@@ -40,6 +40,21 @@ try {
   page=await launch({port:await freePort(9564)}); await page.goto(base+'/#f=60');
   await page.until("window.__preview && __preview.frameReadiness()?.verified && __preview.frame()===60 && document.querySelector('#previewReadiness').hidden",90000);
   const iframe=code=>page.frameEval('player.html',code);
+  const seekEvidence = await page.eval(`
+    __preview.seek(60);
+    const same = __preview.frameReadiness();
+    __preview.seek(61);
+    const pending = __preview.frameReadiness();
+    __preview.seek(61);
+    return {same, pending};
+  `);
+  assert.equal(seekEvidence.same?.verified,true); assert.equal(seekEvidence.same.frame,60);
+  assert.equal(seekEvidence.pending?.verified,false); assert.equal(seekEvidence.pending.reason,'frame-not-confirmed');
+  assert.equal(seekEvidence.pending.frame,60); assert.equal(seekEvidence.pending.hash,seekEvidence.same.hash);
+  await page.until("__preview.frameReadiness()?.verified && __preview.frameReadiness().frame===61");
+  await page.eval('__preview.seek(60)');
+  await page.until("__preview.frameReadiness()?.verified && __preview.frameReadiness().frame===60");
+  pass('Un seek identique conserve la confirmation, un déplacement attend la preuve Remotion sur la nouvelle image.');
   const notes=()=>fetch(base+'/api/notes').then(r=>r.json()).then(x=>x.notes);
   await page.eval('window.firstPlayer=__preview');
   await iframe("window.remotion_delayRenderHandles ??= []; window.remotion_delayRenderHandles.push(919100); window.dispatchEvent(new Event('coulisses-readiness')); return true");

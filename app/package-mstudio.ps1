@@ -13,7 +13,7 @@ if (-not $OutputDir) { $OutputDir = Join-Path $root '.cache/mstudio-release' }
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 [void][IO.Directory]::CreateDirectory($downloads)
 [void][IO.Directory]::CreateDirectory($OutputDir)
-$version = '0.2.5'
+$version = '0.2.6'
 
 function Get-Archive([string]$FileName, [string]$Url, [string]$Hash) {
     $file = Join-Path $downloads $FileName

@@ -20,8 +20,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("MStudio")]
 [assembly: AssemblyProduct("MStudio")]
 [assembly: AssemblyDescription("Montage et revue de projets Remotion")]
-[assembly: AssemblyVersion("0.2.5.0")]
-[assembly: AssemblyFileVersion("0.2.5.0")]
+[assembly: AssemblyVersion("0.2.6.0")]
+[assembly: AssemblyFileVersion("0.2.6.0")]
 [assembly: Guid("1832da9f-bb81-469a-8b74-87bb72e405a6")]
 
 static class MStudioProgram

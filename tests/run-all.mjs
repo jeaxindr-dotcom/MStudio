@@ -37,7 +37,7 @@ const SUITES = [
   ['reconstruct-agent','self'], ['reconstruct-project','self'], ['reconstruct-jobs','self'], ['reconstruct-browser','self'],
   ['timeline-code-thumbnails','self'], ['hub-library-v3','self'], ['scene-parallax-request','self'], ['lot-receipts-v2','self'], ['agent-presence','self'],
   ['project-output-parity','self'], ['shared-appearance','self'], ['long08-review-guidance','self'],
-  ['export-contract-long08','self'], ['preview-note-readiness','self'],
+  ['export-contract-long08','self'], ['preview-note-readiness','self'], ['monitor-readiness-notice','self'],
   ['lot-capture-ui', 'self'], ['lot-frame-list', 'self'], ['lot-images-cli', 'self'], ['lot-sources', 'self'],
   ['lot-updates', 'self'], ['lot-capture-recovery', 'self'], ['lot-capture-workspace', 'self'], ['envoi-performance', 'self'],
   ['shot-render-regressions', 'self'],

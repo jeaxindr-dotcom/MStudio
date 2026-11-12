@@ -85,12 +85,21 @@
     <div id="viewbar">
       <span class="dock-heading" data-workspace-label="monitor"></span>
       <span class="seg" title="{{st.src.title}}">
-        <button id="srcVideo" class="on"><i data-ic="film"></i>{{st.src.video}}</button><button id="srcCode"><i data-ic="code"></i>{{st.src.code}}</button>
+        <button id="srcVideo" class="on"><i data-ic="film"></i><span>{{st.src.video}}</span></button><button id="srcCode"><i data-ic="code"></i><span>{{st.src.code}}</span></button>
       </span>
-      <span id="codeStatus"></span>
-      <span class="grow"></span>
+      <div id="monitorStatus">
+        <details id="previewReadiness" hidden>
+          <summary><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M7.1 2.1a1 1 0 0 1 1.8 0l5.3 10a1 1 0 0 1-.9 1.5H2.7a1 1 0 0 1-.9-1.5z" stroke="currentColor" stroke-width="1.3"/><path d="M8 5.5v3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".8" fill="currentColor"/></svg><span></span></summary>
+          <div class="readiness-detail">
+            <p></p>
+            <button type="button" class="soft" hidden></button>
+          </div>
+        </details>
+        <span id="readinessAnnouncement" role="status"></span>
+        <span id="codeStatus"></span>
+      </div>
       <label id="playbackResolutionControl" hidden title="{{st.preview.resolutionHelp}}">
-        {{st.preview.resolution}} <select id="playbackResolution">
+        <span>{{st.preview.resolution}}</span> <select id="playbackResolution">
           <option value="auto">Auto</option><option value="1">100 %</option><option value="0.75">¾</option><option value="0.5">½</option><option value="0.25">¼</option>
         </select>
       </label>

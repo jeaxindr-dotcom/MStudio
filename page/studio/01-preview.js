@@ -270,10 +270,11 @@
       version:codeVer, hash:STATUS.code?.hash ?? null, staleLegacy:0};
     const sp = SP, q = sp?.frameReadiness?.();
     const sameFault = frameFault && (frameFault.player?.deref() ?? null) === sp && (frameFault.frame === frame || !sp);
-    if (sameFault && q?.verified && q.frame === frame) frameFault = null;
+    if (sameFault && q?.verified && q.frame === frame && !sp?.isBuffering?.()) frameFault = null;
     let state, reason;
     if (crash && sp) {state = 'error'; reason = crash.kind || 'composition-error';}
-    else if (sameFault && !q?.verified) {state = frameFault.state; reason = frameFault.reason;}
+    else if (sameFault && frameFault) {state = frameFault.state; reason = frameFault.reason;}
+    else if (!sp && codeLoad) {state = 'loading'; reason = 'player-starting';}
     else if (!sp || !q) {state = 'unverified'; reason = 'no-frame-confirmation';}
     else if (!q.verified || sp.isBuffering?.()) {state = q.verified ? 'loading' : q.state; reason = q.reason || 'buffering';}
     else if (exact && q.frame !== frame) {state = 'unverified'; reason = 'frame-not-confirmed';}
@@ -281,34 +282,70 @@
     return {state,reason,frame,observedFrame:q?.frame ?? null,version:q?.version ?? (codeVer >= 0 ? codeVer : frameFault?.version ?? null),
       hash:q?.hash ?? null,staleLegacy:q?.staleLegacy || 0};
   }
-  const readinessNotice = document.createElement('div'); readinessNotice.id = 'previewReadiness'; readinessNotice.hidden = true;
-  const readinessText = document.createElement('span'), readinessRetry = document.createElement('button');
-  readinessText.setAttribute('role','status'); readinessRetry.type = 'button'; readinessRetry.className = 'soft';
+  const readinessNotice = $('#previewReadiness'), readinessSummary = readinessNotice.querySelector('summary');
+  const readinessHeading = readinessSummary.querySelector('span'), readinessText = readinessNotice.querySelector('p');
+  const readinessRetry = readinessNotice.querySelector('button'), readinessAnnouncement = $('#readinessAnnouncement');
   readinessRetry.textContent = FR ? 'Recharger l’aperçu' : 'Reload preview';
-  readinessRetry.onclick = () => { if (mode === 'code') hardReload(curFrame(),crash?.kind); };
-  readinessNotice.append(readinessText,readinessRetry); $('#stagewrap').before(readinessNotice);
+  readinessRetry.onclick = () => {
+    readinessNotice.open = false;
+    if (!readinessNotice.hidden) readinessSummary.focus({preventScroll:true});
+    if (mode === 'code') hardReload(curFrame(),crash?.kind);
+  };
+  readinessNotice.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && !e.altKey && !e.ctrlKey && !e.metaKey) e.stopPropagation();
+    if (e.key === 'Escape' && readinessNotice.open) {
+      e.preventDefault(); e.stopPropagation(); readinessNotice.open = false; readinessSummary.focus({preventScroll:true});
+    }
+  });
+  document.addEventListener('pointerdown', e => {
+    if (readinessNotice.open && !readinessNotice.contains(e.target)) readinessNotice.open = false;
+  });
   function readinessLabel(reason) {
     const messages = {
-      'unowned-render-handles':['chargement sans propriétaire','unowned render handle'],
-      'stale-unowned-render-handles':['attente de rendu orpheline','stale render handle'],
+      'unowned-render-handles':['le lecteur attend la fin d’un chargement','the player is waiting for a resource to load'],
+      'stale-unowned-render-handles':['un chargement n’a pas signalé sa fin','a resource has not reported that it finished loading'],
       'resources':['ressources en chargement','assets loading'], 'webgl-context-lost':['contexte WebGL perdu','WebGL context lost'],
       'webgl':['contexte WebGL perdu','WebGL context lost'], 'webgl-first-draw':['premier dessin 3D en attente','waiting for first 3D draw'],
       'buffering':['mise en mémoire tampon','buffering'], 'video':['décodage vidéo','video decoding'],
       'image':['image en chargement','image loading'], 'font':['police en chargement','font loading'],
+      'player-starting':['démarrage du lecteur','starting the player'], 'transport':['communication avec le lecteur interrompue','connection to the player lost'],
+      'composition-error':['erreur dans la composition','composition error'], 'root':['erreur dans la composition','composition error'],
+      'frame-preparation-failed':['échec de la préparation de l’image','frame preparation failed'],
       'no-frame-confirmation':['confirmation du lecteur en attente','waiting for player confirmation'],
       'frame-not-confirmed':['position en attente de confirmation','frame position unconfirmed'],
       'code-range-preparing':['préparation de la plage','preparing the range'],
     };
     return messages[reason]?.[FR ? 0 : 1] || reason;
   }
+  let pendingNoticeSince = null, pendingNoticeFrame = null, pendingNoticeVersion = null;
   function updateReadinessNotice() {
-    const info = mode === 'code' && META ? previewNoteReadiness(curFrame(), !SP?.isPlaying?.()) : null;
-    // La barre de préparation indique déjà l'attente volontaire du Player suspendu.
-    readinessNotice.hidden = !info || info.reason === 'code-range-preparing';
-    if (readinessNotice.hidden) return;
-    const label = (info.state === 'expired' ? (FR ? 'Préparation expirée' : 'Preparation timed out') : (FR ? 'Image non confirmée' : 'Frame unverified'))
-      + ' · ' + readinessLabel(info.reason) + (FR ? ' · les notes seront signalées.' : ' · notes will be flagged.');
-    if (readinessText.textContent !== label) readinessText.textContent = label;
+    const exact = !SP?.isPlaying?.();
+    const info = mode === 'code' && META ? previewNoteReadiness(curFrame(), exact) : null;
+    const waiting = info && info.reason !== 'code-range-preparing';
+    const definite = info?.state === 'error' || info?.state === 'expired';
+    // A first paint or a scrub normally catches up on its own. Keep the
+    // evidence in notes immediately, while giving a newly requested frame time.
+    const frame = exact ? info?.frame : null;
+    if (!waiting || pendingNoticeFrame !== frame || pendingNoticeVersion !== codeVer) pendingNoticeSince = null;
+    pendingNoticeFrame = frame;
+    pendingNoticeVersion = codeVer;
+    if (waiting && pendingNoticeSince === null) pendingNoticeSince = performance.now();
+    const hidden = !waiting || (!definite && performance.now() - pendingNoticeSince < 1600);
+    if (hidden && readinessNotice.contains(document.activeElement)) $(mode === 'code' ? '#srcCode' : '#srcVideo').focus({preventScroll:true});
+    readinessNotice.hidden = hidden;
+    if (readinessNotice.hidden) {
+      readinessNotice.open = false;
+      if (readinessAnnouncement.textContent) readinessAnnouncement.textContent = '';
+      return;
+    }
+    const heading = info.state === 'expired' ? (FR ? 'Préparation expirée' : 'Preparation timed out')
+      : info.state === 'loading' ? (FR ? 'Chargement de l’image' : 'Frame loading') : (FR ? 'Image non confirmée' : 'Frame unverified');
+    const detail = readinessLabel(info.reason) + (FR ? ' · Les notes sur cette image seront signalées.' : ' · Notes on this frame will be flagged.');
+    if (readinessHeading.textContent !== heading) readinessHeading.textContent = heading;
+    if (readinessText.textContent !== detail) readinessText.textContent = detail;
+    const title = heading + ' · ' + detail;
+    if (readinessSummary.title !== title) readinessSummary.title = title;
+    if (readinessAnnouncement.textContent !== heading) readinessAnnouncement.textContent = heading;
     readinessRetry.hidden = info.state === 'loading';
   }
   window.CoulissesReadiness = {failed: detail => {

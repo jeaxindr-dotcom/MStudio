@@ -54,13 +54,18 @@
   function remotePlayer(win, ver = null, origin = previewOrigin) {
     const M = { hello: null, frame: 0, playing: false, buffering: false, ready: false, loading: false, crashed: false, st: null, infos: new Map() };
     let seq = 0, helloRes = null, wroteF = 0, wroteS = 0, gone = false, lastSeen = performance.now();
+    let pendingSeek = null;
     let lastHealthCheck = lastSeen, probedAt = null, stalledFrame = null, sleeping = false, unloaded = false;
     const waits = new Map(), evOn = new Set(), stOn = new Set();
     const hello = new Promise((r) => { helloRes = r; });
     const callWith = (extra, path, ...args) => new Promise((res, rej) => {
       if (gone) { rej(new Error('preview gone')); return; }
       const id = ++seq;
-      if (WRITE_F.has(path)) wroteF = id; if (WRITE_S.has(path)) wroteS = id;
+      if (WRITE_F.has(path)) {
+        wroteF = id;
+        if (['prepare', 'recover', 'unload', 'resume'].includes(path)) pendingSeek = null;
+      }
+      if (WRITE_S.has(path)) wroteS = id;
       const timeout = PREPARING.has(path) ? 95000 : path === 'stage.snapshot' || path === 'pickMany' || path === 'pick' ? 30000 : 15000;
       const timer = setTimeout(() => { if (waits.delete(id)) rej(new Error(`Aperçu sans réponse (${path})`)); }, timeout);
       waits.set(id, { res, rej, timer });
@@ -72,9 +77,14 @@
       if (!s) return;
       const freshF = !(s.seen < wroteF), freshS = !(s.seen < wroteS);   // (sent before the preview had the page's last write: not its frame / offsets)
       if (freshF) {
-        M.frame = s.frame ?? M.frame; M.playing = !!s.playing;
+        // React can acknowledge the seek before the new frame commits. Keep
+        // the requested playhead and withhold its proof until the frame lands.
+        if (pendingSeek === null || s.frame === pendingSeek || s.playing || s.crashed) {
+          M.frame = s.frame ?? M.frame; pendingSeek = null;
+        }
+        M.playing = !!s.playing;
         M.ready = s.ready === true; M.loading = !!s.loading; M.crashed = !!s.crashed; M.buffering = !!s.buffering;
-        if (s.readiness) M.readiness = s.readiness;
+        M.readiness = s.readiness ?? null;
       }
       M.scene3d = !!s.scene3d;
       if (s.stage !== undefined && freshS) {
@@ -110,7 +120,7 @@
         const ev = d.ev;
         const freshF = !(ev.seen < wroteF);   // (a frame of before the page's last seek: not taken)
         if (!freshF && ['ready-error','loading','loaded','waiting','resume'].includes(ev.type)) return;
-        if (freshF && Number.isFinite(ev.frame)) M.frame = ev.frame;
+        if (freshF && Number.isFinite(ev.frame) && (pendingSeek === null || ev.frame === pendingSeek)) M.frame = ev.frame;
         if (freshF && ev.type === 'play') M.playing = true;
         else if (freshF && (ev.type === 'pause' || ev.type === 'ended')) M.playing = false;
         else if (freshF && ev.type === 'loading') { M.loading = true; M.ready = false; }
@@ -159,12 +169,21 @@
     };
     const api = {
       remote: true,
-      frameReadiness: () => M.readiness ? {...M.readiness} : null,
+      frameReadiness: () => pendingSeek !== null
+        ? {state: 'loading', verified: false, reason: 'frame-not-confirmed', frame: M.readiness?.frame ?? null,
+           version: M.readiness?.version ?? M.hello?.v ?? null, hash: M.readiness?.hash ?? M.hello?.hash ?? null}
+        : M.readiness ? {...M.readiness} : null,
       get durationInFrames() { return M.hello?.durationInFrames ?? 0; }, get fps() { return M.hello?.fps; }, get width() { return M.hello?.width; }, get height() { return M.hello?.height; },
       get ok() { return !!M.hello?.ok; }, get generic() { return !!M.hello?.generic; }, get composition() { return M.hello?.composition; }, get episode() { return M.hello?.episode; }, get hyperframes() { return !!M.hello?.hyperframes; },
       get stage() { return M.hello?.stage ? stage : undefined; },
-      frame: () => M.frame, isPlaying: () => M.playing, isBuffering: () => M.buffering, frameReady: () => M.ready, frameLoading: () => M.loading, crashed: () => M.crashed,
-      seek: (f) => { M.readiness = null; M.frame = Math.max(0, Math.min((M.hello?.durationInFrames ?? 1) - 1, Math.round(f))); send('seek', f); },
+      frame: () => M.frame, isPlaying: () => M.playing, isBuffering: () => M.buffering, frameReady: () => pendingSeek === null && M.ready, frameLoading: () => M.loading, crashed: () => M.crashed,
+      seek: (f) => {
+        const target = Math.max(0, Math.min((M.hello?.durationInFrames ?? 1) - 1, Math.round(f)));
+        if (!M.playing && target === M.frame && (pendingSeek === target ||
+            (M.ready && !M.crashed && !M.buffering && !M.loading && M.readiness?.verified && M.readiness.frame === target))) return;
+        pendingSeek = target; M.frame = target;
+        send('seek', target);
+      },
       play: () => { M.playing = true; return call('play').catch((error) => { M.playing = false; throw error; }); }, pause: () => {
         // the preview frozen (a heavy scene mounting): the pause is queued behind the freeze; the frame on screen when it was
         // asked is where it stops, not where its clock ran meanwhile (user request 03/11/2026: « je ne peux pas l'interrompre »)
