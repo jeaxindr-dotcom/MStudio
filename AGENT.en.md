@@ -13,6 +13,20 @@ function CLI { & "$mstudio\runtime\node.exe" "$mstudio\studio-cli.mjs" @args }
 
 The simplest is to reuse, as they are, the full commands written in each batch `.md`. They target the right studio and carry the `--episodes …` flag when the batch comes from a sandbox.
 
+## Opening the app with the user
+
+Always use the native `open` command when opening or resuming a project with the user:
+
+```powershell
+CLI open "<project folder or .coulisses file>"
+CLI open E19 --theatre "<theatre folder>"
+CLI open --home
+```
+
+This opens **MStudio.exe**, reusing its instance and project library. Do not launch `studio-server.mjs` or a browser URL in place of this command. Servers using `--no-open` are reserved for internal operations and isolated tests.
+
+A `Pxxxxxxxx` or `E19` identifier without context uses the app's library. For another theatre, provide `--theatre` or `--episodes`: the CLI finds the episode's unique native `.coulisses` file. If supplied, `--remotion` must match that file's declared engine; source paths are never rewritten. `open --home` opens the library without a project. If automatic discovery cannot find the installation, `MSTUDIO_EXE` can point to its exact executable. “Open requested” confirms dispatch to the app, not completion of project loading.
+
 ## Machine markers: the same in both languages
 
 Some words are read by programs and other agents, so they never change with the language. In English, a short gloss follows them:

@@ -11,6 +11,20 @@ function CLI { & "$mstudio\runtime\node.exe" "$mstudio\studio-cli.mjs" @args }
 
 Le plus simple est de reprendre telles quelles les commandes complètes écrites dans chaque lot `.md`. Elles visent le bon studio et contiennent le drapeau `--episodes …` quand le lot vient d'un bac à sable.
 
+## Ouvrir le logiciel avec l’utilisateur
+
+Pour ouvrir ou reprendre un projet avec l’utilisateur, utilise toujours la commande native `open` :
+
+```powershell
+CLI open "<chemin du projet ou du fichier .coulisses>"
+CLI open E19 --theatre "<dossier du théâtre>"
+CLI open --home
+```
+
+Elle ouvre **MStudio.exe**, réutilise son instance et son registre de projets. Ne lance pas `studio-server.mjs` ni une URL dans un navigateur pour remplacer cette ouverture. Les serveurs avec `--no-open` sont réservés au fonctionnement interne et aux tests isolés.
+
+Un identifiant `Pxxxxxxxx` ou `E19` sans contexte utilise la bibliothèque du logiciel. Pour un autre théâtre, indique `--theatre` ou `--episodes` : le CLI retrouve l’unique fichier `.coulisses` natif de l’épisode. Si `--remotion` est fourni, il doit correspondre au moteur déclaré par ce fichier ; aucun chemin source n’est réécrit. `open --home` ouvre la bibliothèque sans projet. Si l’installation n’est pas trouvée automatiquement, `MSTUDIO_EXE` peut désigner son exécutable exact. « Ouverture demandée » confirme la transmission au logiciel, pas la fin du chargement du projet.
+
 ## Deux façons de recevoir un lot
 
 1. **Ligne collée.** L'utilisateur colle par exemple `MStudio · E03 · lot 3 (4 modifs) → lis "…\revue\lots\003.md" et corrige …`. Lis ce fichier `.md` : il contient toute la demande.

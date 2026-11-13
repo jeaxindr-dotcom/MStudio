@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
 import {once} from 'node:events';
+import fs from 'node:fs';
 import {createUpdateController, relayUpdate, updateAction, updateRequestStatus} from '../lib/app-update-api.mjs';
 
 test('The editor and the library expose the supported local update actions', () => {
@@ -26,10 +27,38 @@ test('A studio contacts its library and supplies its own project for the restart
   });
   hub.listen(0,'127.0.0.1'); await once(hub,'listening'); t.after(() => hub.close());
   const url = 'http://127.0.0.1:' + hub.address().port;
-  const reply = await relayUpdate(url, 'install','P1234abcd');
-  assert.equal(reply.status,409); assert.equal(reply.data.error,'work is active');
-  assert.deepEqual(seen,[['POST','/api/app-update/install?ep=P1234abcd','application/json']]);
+  for (const action of ['state','check','download','install','defer','cancel']) {
+    const reply = await relayUpdate(url, action,'P1234abcd');
+    assert.equal(reply.status,409); assert.equal(reply.data.error,'work is active');
+  }
+  assert.deepEqual(seen,[['GET','/api/app-update?ep=P1234abcd',undefined],
+    ...['check','download','install','defer','cancel'].map(action => ['POST',`/api/app-update/${action}?ep=P1234abcd`,'application/json'])]);
   await assert.rejects(relayUpdate('https://example.org', 'state'));
+});
+
+test('The hub rejects every project update request after losing its studio ownership', async () => {
+  // Exercise the actual route without an installed app or network update check.
+  const source = fs.readFileSync(new URL('../hub-server.mjs', import.meta.url),'utf8');
+  const body = source.slice(source.indexOf('    if (operation) {'), source.indexOf('    // the menu bar (menubar.js)'));
+  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+  const route = new AsyncFunction('operation','url','ep','studios','studioAlive','inspectStudio','appUpdates','req','res','json','updateRequestStatus','process','t',body);
+  for (const operation of ['state','check','download','install','defer','cancel']) {
+    for (const state of ['unknown','dead','paused','loading','wrong-owner','ready','home','invalid']) {
+      let ran = false;
+      const studio = {url:'http://127.0.0.1:1/',paused:state==='paused',adopted:state==='wrong-owner'};
+      if(state==='loading')studio.url=null;
+      const map = new Map(state==='unknown'?[]:[['P1234abcd',studio]]);
+      const url = new URL('http://127.0.0.1:4510/' + (state==='home'?'':state==='invalid'?'?ep=oops':'?ep=P1234abcd'));
+      const ep = state==='home'||state==='invalid'?null:'P1234abcd';
+      const result = await route(operation,url,ep,map,()=>state!=='dead',async()=>{throw Error('wrong owner');},
+        {run:async(_,id)=>{ran=true;return{id};}}, {},{},(_,data,status=200)=>({data,status}),()=>200,{env:{MSTUDIO_UPDATE_PROTOCOL:'2'}},x=>x);
+      const allowed = state==='ready'||state==='home';
+      assert.equal(result.status,allowed?200:404,operation+'/'+state);
+      assert.equal(ran,allowed,operation+'/'+state);
+      if(allowed)assert.equal(result.data.id,state==='home'?null:'P1234abcd');
+      else assert.equal(result.data.error,'unavailable');
+    }
+  }
 });
 
 function fixture() {

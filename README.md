@@ -19,9 +19,11 @@ Tested with [Lucas Vieira’s public-domain animation](https://commons.wikimedia
 
 ## Windows installation
 
-For a first installation, download and run `MStudio-Setup-0.2.7-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
+For a first installation, download and run `MStudio-Setup-0.2.8-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
 
 For subsequent versions, click **Update** in the library or an open project. Once the download is verified, choose **Restart and install now** or **Install next time MStudio opens**. **Cancel** dismisses the dialog and keeps the downloaded installer.
+
+Agents open projects in the Windows application with `runtime/node.exe studio-cli.mjs open "path/to/project.coulisses"`, from the installed MStudio directory. `open --home` opens the library. Native Brambleshire episodes can stay in their original theatre: importing preserves their engine, notes and library identity without moving or converting the project.
 
 ## Work with the project
 

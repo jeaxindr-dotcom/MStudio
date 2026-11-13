@@ -27,6 +27,7 @@ const RENDER_SOURCE = path.join(SANDBOX, 'E03 - The Secret Garden', 'E03 - The S
 // [suite, besoin] : self crée ses serveurs ; sandbox utilise E03 ; render utilise sa copie.
 const SUITES = [
   ['isolation-runtime-test', 'self'],
+  ['desktop-open', 'self'], ['desktop-hub', 'self'], ['desktop-hub-server', 'self'], ['desktop-navigation', 'self'], ['mstudio-launcher-arguments', 'self'], ['native-projects', 'self'], ['frame-cache', 'self'],
   ['app-updates','self'], ['app-update-api','self'], ['app-update-install','self'], ['app-update-ui','self'],
   ['drawing-popover', 'self'],
   ['playback-resolution-browser', 'self'],

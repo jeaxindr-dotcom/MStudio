@@ -38,8 +38,7 @@
       $('#dictee .x').title = FR ? 'Échap : annuler' : 'Esc: cancel';
       const product = T('common.productName');
       document.title = PROJ ? `${product} — ${META.title}` : `${product} · ${META.episode} — ${META.title}`;
-      if (META.hub) { const l = $('#logo'); l.href = META.hub; l.title = T('st.start.home'); l.style.cursor = 'pointer'; $('#crumb').href = META.hub; $('#crumb').title = T('st.start.home'); }
-      else { document.body.classList.add('nohub'); $('#bHome').classList.add('off'); $('#bHome').querySelector('.why').textContent = T('menu.why.noHub'); }
+      syncHubNavigation(META.hub);
       $('#title').textContent = PROJ ? META.title : `${META.episode} · ${META.title}`;
       $('#render').textContent = META.render ? T('st.start.render', { name: META.render.name, what: T(PROJ ? 'st.start.exported' : 'st.start.rendered'), date: FR ? new Date(META.render.mtime).toLocaleString() : new Date(META.render.mtime).toLocaleString('en-US', { hour12: false }) }) : META.features?.code ? T('st.start.liveCode') : T('st.start.noVideo');
       updateEpisodePlanNotice();   // the live timeline may still be loading; an export snapshot is not needed in Code

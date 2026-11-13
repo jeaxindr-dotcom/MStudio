@@ -135,10 +135,21 @@
     draw(); dialog.showModal(); close.focus(); refresh(true);
   };
 
-  request().then(value => {
-    state = value; trigger.hidden = false;
-  }).catch(error => {
-    // A source checkout or a remote review has no desktop update endpoint.
-    trigger.hidden = [403,404].includes(error.status);
-  });
+  let probeGeneration = 0;
+  async function probeAvailability() {
+    const generation = ++probeGeneration;
+    if (busy) return;
+    try {
+      const value = await request();
+      if (generation !== probeGeneration || busy) return;
+      state = value; trigger.hidden = false;
+    }
+    catch (error) {
+      if (generation !== probeGeneration || busy) return;
+      // A source checkout or a remote review has no desktop update endpoint.
+      trigger.hidden = [403,404].includes(error.status);
+    }
+  }
+  window.addEventListener('mstudio-hub-change', probeAvailability);
+  probeAvailability();
 })();

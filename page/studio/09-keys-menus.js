@@ -104,6 +104,28 @@
   // home screen over the studio, in a frame of its own loaded beforehand (hubFrame), shown at once; the studio stays
   // where it is behind it. The project open here, chosen there (or « Revenir au studio », Échap): the studio again, at
   // once; another one: the whole window goes to it (a veil first: the studio takes a moment to go)
+  function syncHubNavigation(hub, desktopUpdates = META?.desktopUpdates) {
+    if (!META) return;
+    const previous = META.hub;
+    const previousUpdates = META.desktopUpdates;
+    META.hub = hub || null;
+    META.desktopUpdates = desktopUpdates;
+    const available = !!META.hub;
+    document.body.classList.toggle('nohub', !available);
+    const home = $('#bHome');
+    home.classList.toggle('off', !available);
+    home.querySelector('.why').textContent = available ? '' : T('menu.why.noHub');
+    for (const selector of ['#logo', '#crumb']) {
+      const link = $(selector);
+      if (available) { link.href = META.hub; link.title = T('st.start.home'); link.style.cursor = 'pointer'; }
+      else { link.removeAttribute('href'); link.title = T('menu.why.noHub'); link.style.cursor = ''; }
+    }
+    if (META.reverse) $('#reverseOpenEdit').hidden = !available;
+    if (previous !== META.hub) {
+      $('#hubOv')?.remove();
+    }
+    if (previous !== META.hub || previousUpdates !== META.desktopUpdates) window.dispatchEvent(new Event('mstudio-hub-change'));
+  }
   function hubFrame(q = '') {
     let f = $('#hubOv');
     if (f && q) { f.remove(); f = null; }   // a menu of the home screen asked from here (« Ouvrir un projet… »): that page

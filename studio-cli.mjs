@@ -18,6 +18,8 @@
 //   updates  <ep> [--agent claude|codex]   what may need updating on the agent's side (Remotion, skills): checked
 //                                      at every batch sent from the tool; this re-checks now (lib/updates.mjs)
 //   status   <ep>
+//   open     <project path|E19|P1234abcd> [--theatre dir]   open the native Windows app
+//   open     --home                                     open its library
 //   medias   <chaîne | fichier .coulisses> liste [--categorie c] [--json]      the channel's media library (lib/medias.mjs)
 //   medias   <chaîne | fichier .coulisses> ajouter <image> [--nom n] [--categorie c] [--tags a,b] [--description d]
 //                                      [--prompt p]   an image the agent made for the channel, into its library
@@ -37,7 +39,7 @@ import { snapshot, finish, step, listRuns } from './lib/runs.mjs';
 import { runRender, markReviewed, PHASES } from './lib/render.mjs';
 import { checkUpdates, updatesLine, updatesMarkdown } from './lib/updates.mjs';
 import { detectAgent, agentById } from './lib/agent.mjs';
-import { t, hhmm } from './lib/i18n.mjs';
+import { t, hhmm, lang } from './lib/i18n.mjs';
 import { assertReviewAvailable } from './lib/app-profile.mjs';
 // Machine markers, the same in both languages (agents and pipelines may look for them): « PROJET CONFORME »,
 // « PROJET NON CONFORME », « LOT N REÇU », « DEMANDE DE RENDU (lot N) REÇUE », « RENDU TERMINÉ », « RENDU ARRÊTÉ »,
@@ -54,6 +56,23 @@ for (let i = 0; i < argv.length; i++) {
 const flag = (k, d) => flags[k]?.[0] ?? d;
 const [cmd, epArg, ...rest] = pos;
 const die = (m) => { console.error(m); process.exit(1); };
+
+// Opening belongs to the desktop app's single-instance lifecycle. In particular,
+// an existing studio lock must not prevent bringing its native window back.
+if (cmd === 'open') {
+  const usage = 'open <projet|E19|P1234abcd> [--theatre dossier] [--episodes dossier] [--remotion dossier] | open --home';
+  if (flags['--help']) { console.log(usage); process.exit(0); }
+  const allowed = new Set(['--home','--theatre','--episodes','--remotion']);
+  if (rest.length || Object.keys(flags).some(key => !allowed.has(key))) die(usage);
+  for (const key of ['--theatre','--episodes','--remotion']) if (flags[key] && (flags[key].length !== 1 || !flag(key) || String(flag(key)).startsWith('--'))) die(usage);
+  try {
+    const {openDesktop} = await import('./lib/desktop-open.mjs');
+    const opened = await openDesktop(epArg,{home:!!flags['--home'],theatre:flag('--theatre'),episodes:flag('--episodes'),remotion:flag('--remotion')});
+    const label = opened.target === '--home' ? (lang() === 'fr' ? 'bibliothèque' : 'library') : opened.target;
+    console.log(lang() === 'fr' ? `MStudio : ${label} — ouverture demandée.` : `MStudio: ${label} — open requested.`);
+  } catch (error) { die(error.message); }
+  process.exit(0);
+}
 
 // « projet creer » / « projet verifier »: the .coulisses file of a run (docs\FICHE-COULISSES-REMOTION.md), before any episode
 if (cmd === 'projet') {

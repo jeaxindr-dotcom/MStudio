@@ -216,7 +216,7 @@ static class MStudioUpdate
     static bool ValidResumeArgument(string value)
     {
         return !String.IsNullOrEmpty(value) && value.IndexOf('"') < 0 &&
-            (Regex.IsMatch(value, @"\A(?:E\d+|P[0-9a-fA-F]{8})\z") ||
+            (value == "--home" || Regex.IsMatch(value, @"\A(?:E\d+|P[0-9a-fA-F]{8})\z") ||
              Path.IsPathRooted(value) && (File.Exists(value) || Directory.Exists(value)));
     }
 

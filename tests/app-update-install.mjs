@@ -71,8 +71,9 @@ try {
   for (const [file,main] of [['MStudio.exe','LifecycleFixture'],['MStudio.Update.exe','LifecycleWorker'],['Setup.exe','LifecycleInstaller']])
     compile(main,path.join(binaries,file),testSource);
 
-  for (const mode of ['defer','install']) {
-    const testRoot=path.join(dir,mode), program=path.join(testRoot,'program'), data=path.join(testRoot,'data'), cache=path.join(data,'updates');
+  for (const scenario of ['defer','install','home']) {
+    const mode=scenario==='home'?'defer':scenario, resume=scenario==='home'?'--home':'Pbbbb0002';
+    const testRoot=path.join(dir,scenario), program=path.join(testRoot,'program'), data=path.join(testRoot,'data'), cache=path.join(data,'updates');
     fs.mkdirSync(program,{recursive:true}); fs.mkdirSync(cache,{recursive:true});
     const setup=path.join(cache,'MStudio-Setup-2.3.4-win-x64.exe');
     for (const file of ['MStudio.exe','MStudio.Update.exe']) fs.copyFileSync(path.join(binaries,file),path.join(program,file));
@@ -99,20 +100,20 @@ try {
         await exit(run('Paaaa0001')); // An already-open desktop does not consume the scheduled action.
         assert.equal(installationStatus(data).status,'scheduled');
         fs.writeFileSync(path.join(testRoot,'close-host'),'1'); await exit(host);
-        await Promise.all([exit(run('Pbbbb0002')),exit(run('Pbbbb0002'))]);
+        await Promise.all([exit(run(resume)),exit(run(resume))]);
       }
       await waitFile('setup-count');
       await Promise.all([exit(run()),exit(run())]); // Including relaunches during Setup.
       assert.equal(fs.readFileSync(path.join(testRoot,'setup-count'),'utf8').trim(),'setup');
       if(mode==='install') assert.equal(fs.readFileSync(path.join(testRoot,'saved.txt'),'utf8').trim(),'2 saved and closed');
       fs.writeFileSync(path.join(testRoot,'allow-setup'),'1');
-      const expected=mode==='defer' ? 'Paaaa0001\nPbbbb0002' : 'Paaaa0000';
+      const expected=mode==='defer' ? 'Paaaa0001\n'+resume : 'Paaaa0000';
       const opened=path.join(testRoot,'opened.txt');
       for(let i=0;i<350 && !(fs.existsSync(opened) && fs.readFileSync(opened,'utf8').replaceAll('\r','').trim()===expected);i++) await delay(30);
       assert.equal(fs.readFileSync(opened,'utf8').replaceAll('\r','').trim(),expected);
       assert.equal(JSON.parse(fs.readFileSync(path.join(program,'mstudio.json'))).version,'2.3.4');
       assert.equal(installationStatus(data),null);
-      console.log(mode==='defer'?'✓ Deux lancements après report déclenchent une seule installation ; le projet demandé rouvre.':'✓ Redémarrage immédiat après deux sauvegardes, l’installeur est unique durant les réouvertures.'); ok++;
+      console.log(scenario==='home'?'✓ Après une mise à jour différée, --home rouvre la bibliothèque demandée.':mode==='defer'?'✓ Deux lancements après report déclenchent une seule installation ; le projet demandé rouvre.':'✓ Redémarrage immédiat après deux sauvegardes, l’installeur est unique durant les réouvertures.'); ok++;
     } finally {
       fs.writeFileSync(path.join(testRoot,'close-host'),'1');
       fs.writeFileSync(path.join(testRoot,'allow-setup'),'1');

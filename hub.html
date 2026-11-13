@@ -271,9 +271,9 @@
   let busy = null, last = '';
   const KIND = { aitelier: 'AItelier', folder: T('hub.kind.folder'), video: T('hub.kind.video'), remotion: 'Remotion', run: 'Run' };
   // a run of a Remotion pipeline (.coulisses) opens on its code, before any export
-  const openable = (e) => !e.missing && (!!e.video || e.kind === 'remotion' || e.kind === 'hyperframes');
+  const openable = (e) => !e.missing && (!!e.video || ['remotion', 'brambleshire', 'hyperframes'].includes(e.kind) || (!e.project && e.engine === 'remotion'));
   const engineTag = (e) => (e.engine ? `<span class="eng ${e.engine}" title="${esc(T('hub.engine.title', { e: T('hub.engine.' + e.engine) }))}">${esc(T('hub.engine.' + e.engine))}</span>` : '');
-  const kindOf = (e) => (e.kind === 'run' ? (e.channel || 'Run') : e.kind === 'remotion' ? `${e.channel || 'Remotion'}${e.video ? '' : T('hub.liveCode')}` : e.kind === 'hyperframes' ? `${e.channel || 'HyperFrames'}${e.video ? '' : T('hub.liveCode')}` : e.kind === 'aitelier' ? `AItelier${e.format ? ' · ' + (e.format === 'short' ? 'Short' : T('hub.long')) : ''}` : KIND[e.kind] ?? T('hub.kind.project'));
+  const kindOf = (e) => (e.kind === 'run' ? (e.channel || 'Run') : ['remotion', 'brambleshire'].includes(e.kind) ? `${e.channel || 'Remotion'}${e.video ? '' : T('hub.liveCode')}` : e.kind === 'hyperframes' ? `${e.channel || 'HyperFrames'}${e.video ? '' : T('hub.liveCode')}` : e.kind === 'aitelier' ? `AItelier${e.format ? ' · ' + (e.format === 'short' ? 'Short' : T('hub.long')) : ''}` : KIND[e.kind] ?? T('hub.kind.project'));
   function chipsOf(e) {
     const R = e.render;
     return [
@@ -287,7 +287,7 @@
   }
   function card(e) {
     const c = document.createElement('div'); c.className = 'card' + (openable(e) ? '' : ' off'); c.dataset.id = e.id;
-    const what = e.project ? (e.video ? T('hub.exported', { day: esc(day(e.video.mtime)) }) : e.missing ? T('hub.missingFolder') : e.kind === 'remotion' || e.kind === 'hyperframes' ? T('hub.notExported') : e.kind === 'run' ? T('hub.waitingExport') : T('hub.noVideo')) : (e.video ? T('hub.rendered', { day: esc(day(e.video.mtime)) }) : T('hub.notRendered'));
+    const what = e.project ? (e.video ? T('hub.exported', { day: esc(day(e.video.mtime)) }) : e.missing ? T('hub.missingFolder') : ['remotion', 'brambleshire', 'hyperframes'].includes(e.kind) ? T('hub.notExported') : e.kind === 'run' ? T('hub.waitingExport') : T('hub.noVideo')) : (e.video ? T('hub.rendered', { day: esc(day(e.video.mtime)) }) : T('hub.notRendered'));
     c.innerHTML = `<div class="thumb">${e.thumb ? `<img loading="lazy" decoding="async" alt="" src="${thumbUrl(e)}">` : ''}<span class="id">${esc(e.project ? (e.missing ? T('hub.badge.missing') : T('hub.badge.project')) : e.id)}</span>${e.studio && !e.studio.paused ? `<span class="live">${T('hub.badge.open')}</span>` : ''}${e.project && !e.missing ? `<span class="kind">${esc(kindOf(e))}</span>` : ''}</div>
       <div class="body"><div class="title"><span>${esc(e.title)}</span>${e.missing ? '' : engineTag(e)}</div>
         <div class="meta">${[e.video ? dur(e.duration) : '', what, e.reviewed ? T('hub.reviewed', { day: esc(day(e.reviewed)) }) : ''].filter(Boolean).join(' · ')}</div>
@@ -842,7 +842,7 @@
     const imp = await postJSON('/api/import', { path: r.path });
     if (!imp?.ok) { impErr(imp?.why ?? T('hub.import.failed')); return; }
     const p = imp.project;
-    if (open && (p.episode || p.video || p.kind === 'remotion' || p.kind === 'hyperframes')) { goTo('/go/' + p.id); return; }
+    if (open && (p.episode || p.video || ['remotion', 'brambleshire', 'hyperframes'].includes(p.kind))) { goTo('/go/' + p.id); return; }
     await revealImportedProject(p);
   }
   async function showDoc(name, title) {

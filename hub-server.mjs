@@ -21,7 +21,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { optionsFrom, episode, readJson, stamp } from './lib/episode.mjs';
 import { STUDIO, INSTALLED, CACHE, DATA } from './lib/place.mjs';
-import { APP_NAME, APP_VERSION, MSTUDIO, ENGINE_DIR, HUB_PORT, LAST_HUB_PORT, processIdentity, assertReviewAvailable } from './lib/app-profile.mjs';
+import { APP_NAME, APP_VERSION, MSTUDIO, ENGINE_DIR, HUB_PORT, LAST_HUB_PORT, processIdentity, isOwnStudio, assertReviewAvailable } from './lib/app-profile.mjs';
 import { createAppUpdates } from './lib/app-updates.mjs';
 import { cancelScheduledUpdate, installationStatus, readScheduledInstaller, scheduleAppUpdate } from './lib/app-update-install.mjs';
 import { createUpdateController, installedUpdateTarget, updateAction, updateRequestStatus } from './lib/app-update-api.mjs';
@@ -107,13 +107,13 @@ function projects() {
   const reg = registry();
   return reg.projects.map(entry => {
     const {id, revue} = entry;
-    const st = studios.get(id), live = st && (st.paused || (st.proc.exitCode === null && st.url)) ? { url: st.url, paused: !!st.paused } : null;
+    const st = studios.get(id), live = st && (st.paused || (studioAlive(st) && st.url)) ? { url: st.url, paused: !!st.paused } : null;
     try {
       const p = project(revue), v = p.summary.video;
-      const engine = p.kind === 'remotion' ? 'remotion' : p.kind === 'hyperframes' ? 'hyperframes' : null;   // the home screen's tag (09/10/2026)
+      const engine = ['remotion', 'brambleshire'].includes(p.kind) ? 'remotion' : p.kind === 'hyperframes' ? 'hyperframes' : null;   // the home screen's tag (09/10/2026)
       const reverse = p.kind === 'remotion' && fs.existsSync(path.join(p.EP,'reverse.json')) && readJson(p.coulisses,{})?.reverse === 1;
       return { id, project: true, reverse, kind: p.kind, engine, channel: p.summary.channel ?? null, folder: folderOf(id, p.summary.channel ?? null, reg), coulisses: p.coulisses ?? null, format: p.summary.format, title: p.title, root: p.EP, revue:p.REVUE, video: v,
-        ...(p.kind === 'remotion' ? codeThumbnails.describe(p) : {thumb:!!v || reverse}),
+        ...(['remotion', 'brambleshire'].includes(p.kind) ? codeThumbnails.describe(p) : {thumb:!!v || reverse}),
         duration: v ? durationOf(p.summary.videoPath, v) : null, ...reviewStats(p.REVUE), studio: live };
     } catch (e) {
       return { id, project: true, missing: true, revue,
@@ -154,7 +154,7 @@ function episodes() {
       id, title: folder.replace(/^E\d+ - /i, ''), video, duration: snap ? snap.frames / (snap.fps || 30) : null,
       ...reviewStats(revue), codeThumb,
       ...(codeThumb ? codeThumbnails.describe(episode(id,O)) : {thumb:!!poster || !!video, thumbVersion:poster ? String(poster.mtimeMs) : video?.mtime}),
-      studio: st && (st.paused || (st.proc.exitCode === null && st.url)) ? { url: st.url, paused: !!st.paused } : null,
+      studio: st && (st.paused || (studioAlive(st) && st.url)) ? { url: st.url, paused: !!st.paused } : null,
     };
   });
 }
@@ -176,7 +176,7 @@ async function thumb(id) {
   let src;
   if (item.project) {
     const p = project(item.revue);
-    if (p.kind === 'remotion') {
+    if (['remotion', 'brambleshire'].includes(p.kind)) {
       try { return await codeThumbnails.get(p); }
       catch (e) { log(`Vignette ${id}: ${e.message}`); }
     }
@@ -215,27 +215,83 @@ async function thumb(id) {
 // ---------- studios (one child process per episode) ----------
 const studios = new Map();   // id -> { proc, url, ready, paused }
 let hubUrl = '';
+function studioAlive(st) {
+  if (!st.adopted) return st.proc?.exitCode === null && st.proc?.signalCode === null;
+  try { process.kill(st.pid, 0); return true; } catch { return false; }
+}
+async function inspectStudio(url, notesFile, pid) {
+  const response = await fetch(new URL('/api/ping', url), {redirect:'error', signal:AbortSignal.timeout(3500)});
+  const ping = response.ok ? await response.json() : null;
+  if (!ping?.studio || !isOwnStudio(ping) || !Number.isInteger(ping.pid) || ping.pid <= 0 ||
+      (pid && ping.pid !== pid) || typeof ping.notesFile !== 'string' ||
+      path.resolve(ping.notesFile).toLowerCase() !== path.resolve(notesFile).toLowerCase()) {
+    throw new Error('Le studio ouvert ne correspond pas à ce projet ou à cette installation de MStudio.');
+  }
+  process.kill(ping.pid, 0);
+  return ping;
+}
+async function stopStudio(st) {
+  if (!studioAlive(st)) return;
+  if (st.adopted) {
+    try { await inspectStudio(st.url, st.notesFile, st.pid); }
+    catch (error) { log(error.message); return; }
+  }
+  await killTree(st.adopted ? st.pid : st.proc.pid);
+}
 function open(id) {
   const cur = studios.get(id);
-  if (cur && !cur.paused && cur.proc.exitCode === null) return cur.ready;
+  if (cur && !cur.paused && studioAlive(cur)) return cur.ready.then(async url => {
+    if (cur.adopted) await inspectStudio(url, cur.notesFile, cur.pid);
+    return url;
+  });
   if (id.startsWith('P') && !revueOf(id)) return Promise.reject(new Error(t('hubsrv.gone')));
   // after a pause (render), the studio comes back on ITS port: the window, still open on it, finds it again
   const studioPort = cur?.url ? new URL(cur.url).port : opt('--studio-port');
   const again = studioPort ? ['--port', studioPort, ...(opt('--studio-port') ? ['--fallback-auto-port'] : [])] : [];
-  const st = { proc: null, url: null, paused: false };
+  const review = id.startsWith('P') ? revueOf(id) : episode(id, O).REVUE;
+  const st = { proc: null, url: null, paused: false, notesFile:path.join(review, 'notes.json') };
   const out = fs.createWriteStream(path.join(LOGS, `${id}.log`), { flags: 'a' });
   const proj = id.startsWith('P'), target = proj ? ['--project', revueOf(id) ?? ''] : [id];
   st.proc = spawn(process.execPath, [path.join(STUDIO, 'studio-server.mjs'), ...target, '--no-open', '--hub', hubUrl, ...again, ...(proj ? [] : PASS)], { cwd: STUDIO, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   st.ready = new Promise((resolve, reject) => {
-    let buf = '';
-    const timer = setTimeout(() => { reject(new Error(t('hubsrv.noAnswer', { log: path.join(LOGS, `${id}.log`) }))); if (studios.get(id) === st) studios.delete(id); killTree(st.proc.pid); }, 60000);
+    let buf = '', pending = false, done = false;
+    const fail = error => {
+      if (done) return; done = true; clearTimeout(timer);
+      if (studios.get(id) === st) studios.delete(id);
+      if (st.proc.exitCode === null && st.proc.signalCode === null) killTree(st.proc.pid);
+      reject(error);
+    };
+    const timer = setTimeout(() => fail(new Error(t('hubsrv.noAnswer', { log: path.join(LOGS, `${id}.log`) }))), 60000);
+    const accept = async url => {
+      pending = true;
+      try {
+        if (MSTUDIO) {
+          const ping = await inspectStudio(url, st.notesFile);
+          // A second server can hand off and immediately exit. Adopt the actual
+          // verified owner, not the short-lived process that printed its URL.
+          if (ping.pid !== st.proc.pid) {
+            const response = await fetch(new URL('/api/desktop-hub', url), {method:'POST', redirect:'error',
+              headers:{'Content-Type':'application/json'}, body:JSON.stringify({hub:hubUrl,projectId:id}), signal:AbortSignal.timeout(3500)});
+            const attached = response.ok ? await response.json() : null;
+            if (!attached?.ok || attached.projectId !== id || attached.hub !== hubUrl) {
+              throw new Error('Ce projet est ouvert dans un ancien studio. Fermez sa fenêtre puis rouvrez-le dans MStudio pour retrouver l’accueil.');
+            }
+            st.pid = ping.pid; st.adopted = true;
+          }
+        }
+        if (done) return;
+        done = true; st.url = url; clearTimeout(timer); resolve(url);
+        if (browserAccessWanted()) serveLogged(+new URL(url).port);
+      } catch (error) { fail(error); }
+    };
     st.proc.stdout.on('data', (d) => {
       out.write(d); buf = st.url ? '' : (buf + d).slice(-8000);
       const m = /(?:Ouvre :|Open:) (http:\/\/(?:localhost|127\.0\.0\.1):\d+\/)/.exec(buf);   // the studio's language (studio-server.mjs)
-      if (m && !st.url) { st.url = m[1]; clearTimeout(timer); resolve(st.url); if (browserAccessWanted()) serveLogged(+new URL(st.url).port); }
+      if (m && !pending && !done) accept(m[1]);
     });
     st.proc.stderr.on('data', (d) => { out.write(d); buf = (buf + d).slice(-8000); });
-    st.proc.on('exit', (c) => { clearTimeout(timer); out.end(); if (!st.url) reject(new Error(buf.trim().split('\n').slice(-3).join(' ') || t('hubsrv.exit', { code: c }))); });
+    st.proc.on('exit', (c) => { out.end(); if (!pending && !done) fail(new Error(buf.trim().split('\n').slice(-3).join(' ') || t('hubsrv.exit', { code: c }))); });
+    st.proc.on('error', fail);
   });
   studios.set(id, st);
   log(t('hubsrv.starting', { id }));
@@ -247,12 +303,12 @@ const killTree = (pid) => new Promise((r) => execFile('taskkill', ['/PID', Strin
 async function pause(id) {
   const st = studios.get(id); if (!st) return false;
   st.paused = true;
-  if (st.proc.exitCode === null && st.proc.signalCode === null) await killTree(st.proc.pid);
+  await stopStudio(st);
   log(t('hubsrv.paused', { id })); return true;
 }
 async function quit() {
   await Promise.allSettled([reverseJobs.close(), reconstructionJobs.close(), codeThumbnails.close()]);
-  for (const st of studios.values()) if (st.proc.exitCode === null) await killTree(st.proc.pid);
+  for (const st of studios.values()) await stopStudio(st);
   if (mine.size) await Promise.race([Promise.all([...mine].map((p) => unserve(p))), new Promise((r) => setTimeout(r, 4000))]);   // (the ports it brought to the tailnet, taken back)
   log(t('hubsrv.quit')); process.exit(0);
 }
@@ -261,7 +317,7 @@ const mine = new Set();   // the ports this hub brought to the tailnet (its quit
 const serveLogged = (p) => serve(p).then((r) => { if (r.ok) mine.add(p); else log(`tailscale serve ${p} : ${r.err}`); return r; });
 async function browserAccess(on) {
   setBrowserAccess(on);
-  if (on) { await serveLogged(port); for (const st of studios.values()) if (st.url && st.proc.exitCode === null) await serveLogged(+new URL(st.url).port); }
+  if (on) { await serveLogged(port); for (const st of studios.values()) if (st.url && studioAlive(st)) await serveLogged(+new URL(st.url).port); }
   else { await unserveAll(); mine.clear(); }   // (closed by the user: every port of Coulisses)
   log(on ? 'accès depuis l\'iPad : ouvert (Tailscale)' : 'accès depuis l\'iPad : fermé');
 }
@@ -306,7 +362,7 @@ const readBody = (req, strict = false) => new Promise((resolve,reject) => {
   });
 });
 function doImport(p) {
-  const r = importProject(p, { episodesDir: O.episodesDir });
+  const r = importProject(p, O);
   log(r.episode ? t('hubsrv.episodeOpened', { id: r.id }) : t('hubsrv.imported', { title: r.title, kind: r.kind, revue: r.revue }));
   return r;
 }
@@ -345,7 +401,7 @@ async function checkUpdateIdle() {
   if (reverseJobs.hasActiveWork() || reconstructionJobs.hasActiveWork() ||
       [scanState(), installState(), homeUpdateState()].some(job => job?.state === 'running')) throw blocked();
   await Promise.all([...studios].map(async ([id, studio]) => {
-    if (studio.paused || studio.proc.exitCode !== null || studio.proc.signalCode !== null) {
+    if (studio.paused || !studioAlive(studio)) {
       const review = id.startsWith('P') ? revueOf(id) : episode(id, O).REVUE;
       if (review && renderState({REVUE:review})?.state === 'running') throw blocked();
       return;
@@ -425,7 +481,15 @@ const server = http.createServer(async (req, res) => {
       const code = updateRequestStatus(req, operation);
       if (code !== 200) return json(res, {error:'invalid-request'}, code);
       try {
-        const projectId = ep && studios.has(ep) ? ep : null;
+        const studio = ep ? studios.get(ep) : null;
+        if (url.searchParams.has('ep') && (!studio || studio.paused || !studio.url || !studioAlive(studio))) {
+          return json(res, {error:'unavailable'}, 404);
+        }
+        if (studio?.adopted) {
+          try { await inspectStudio(studio.url, studio.notesFile, studio.pid); }
+          catch { return json(res, {error:'unavailable'}, 404); }
+        }
+        const projectId = ep || null;
         if ((operation === 'defer' || operation === 'install') && process.env.MSTUDIO_UPDATE_PROTOCOL !== '2') {
           return json(res, {error:t('common.appUpdate.oldLauncher')}, 409);
         }
@@ -451,7 +515,7 @@ const server = http.createServer(async (req, res) => {
     // ---- « Mises à jour » (Remotion and HyperFrames): checked once a day by the page, updated on the user's click ----
     if (pn === '/api/home-updates' && req.method !== 'POST') {
       const dirs = [{ label: theatreChannel(), dir: O.remotionDir }, { label: t('upd.home.newProjects'), dir: projectsRoot() },
-        ...registry().projects.map(({ revue }) => { try { const p = project(revue); return p.kind === 'remotion' && p.remotionDir ? { label: p.title, dir: p.remotionDir } : null; } catch { return null; } }).filter(Boolean)];
+        ...registry().projects.map(({ revue }) => { try { const p = project(revue); return ['remotion', 'brambleshire'].includes(p.kind) && p.remotionDir ? { label: p.title, dir: p.remotionDir } : null; } catch { return null; } }).filter(Boolean)];
       return json(res, { ...(await homeUpdates({ fresh: url.searchParams.has('fresh'), remotionDirs: dirs })), job: homeUpdateState() });
     }
     if (pn === '/api/home-updates/run' && req.method === 'POST') {
@@ -495,8 +559,8 @@ const server = http.createServer(async (req, res) => {
       const epDir = O.episodesDir.toLowerCase();
       try {
         const st = startScan(roots, { skip: [STUDIO, CACHE, DATA], describe: (file, c) => {
-          const f = file.toLowerCase(), inTheatre = f.startsWith(epDir + path.sep);
-          if (c.moteur === 'brambleshire') return inTheatre ? { imported: true, episode: true } : { importable: false, episode: true };
+          const f = file.toLowerCase(), inTheatre = c.native?.episodesDir?.toLowerCase() === epDir && c.native?.remotionDir?.toLowerCase() === O.remotionDir.toLowerCase();
+          if (c.moteur === 'brambleshire' && inTheatre) return { imported: true, episode: true };
           return { imported: known.has(f), importable: !c.errors?.length };
         } });
         log(t('hubsrv.scanStart', { roots: roots.join(', ') }));
@@ -508,7 +572,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pn === '/api/import/many') {   // { files: [.coulisses…], folder? }
       const b = await readBody(req), out = [];
       for (const f of Array.isArray(b.files) ? b.files.slice(0, 500) : []) {
-        try { const p = importProject(String(f)); out.push({ file: f, ok: true, id: p.id }); } catch (e) { out.push({ file: f, ok: false, why: e.message }); }
+        try { const p = importProject(String(f), O); out.push({ file: f, ok: true, id: p.id }); } catch (e) { out.push({ file: f, ok: false, why: e.message }); }
       }
       if (b.folder) setFolder(out.filter((x) => x.ok && x.id?.startsWith('P')).map((x) => x.id), b.folder);
       log(t('hubsrv.importMany', { ok: out.filter((x) => x.ok).length, n: out.length }));
@@ -537,7 +601,7 @@ const server = http.createServer(async (req, res) => {
       catch (e) { return send(res, 500, 'text/html; charset=utf-8', page(t('hubsrv.noStart', { id }), e.message)); }
     }
     if (pn === '/import') {   // a folder or a video dropped on the app's icon: import, then open it
-      try { const r = doImport(url.searchParams.get('path') ?? ''); res.writeHead(302, { Location: r.video || r.episode || r.kind === 'remotion' || r.kind === 'hyperframes' ? `/go/${r.id}` : '/' }); return res.end(); }
+      try { const r = doImport(url.searchParams.get('path') ?? ''); res.writeHead(302, { Location: r.video || r.episode || ['remotion', 'brambleshire', 'hyperframes'].includes(r.kind) ? `/go/${r.id}` : '/' }); return res.end(); }
       catch (e) { return send(res, 400, 'text/html; charset=utf-8', page(t('hubsrv.importFail'), e.message)); }
     }
     if (req.method === 'POST' && pn === '/api/import/pick' && viaTailnet(req)) return json(res, { ok: false, remote: true, why: t('hub.ipad.noPicker') });
@@ -548,7 +612,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && pn === '/api/remove') {
       if (!ep.startsWith('P')) return json(res, { ok: false, why: t('hubsrv.onlyProjects') }, 400);
-      const st = studios.get(ep); if (st && st.proc.exitCode === null) await killTree(st.proc.pid);
+      const st = studios.get(ep); if (st) await stopStudio(st);
       studios.delete(ep);
       const ok = removeProject(ep); log(t('hubsrv.removed', { ep }));
       return json(res, { ok });
@@ -569,6 +633,6 @@ server.on('listening', () => {
   console.log(`HUB_READY ${hubUrl}`);
   if (browserAccessWanted()) serveLogged(port);
   if (opt('--episode')) open(opt('--episode').toUpperCase()).catch(() => {});
-  if (opt('--import')) { try { const r = doImport(opt('--import')); if (r.video || r.episode || r.kind === 'remotion' || r.kind === 'hyperframes') open(r.id).catch(() => {}); } catch (e) { log(t('hubsrv.importLog', { msg: e.message })); } }
+  if (opt('--import')) { try { const r = doImport(opt('--import')); if (r.video || r.episode || ['remotion', 'brambleshire', 'hyperframes'].includes(r.kind)) open(r.id).catch(() => {}); } catch (e) { log(t('hubsrv.importLog', { msg: e.message })); } }
 });
 server.listen(port, '127.0.0.1');

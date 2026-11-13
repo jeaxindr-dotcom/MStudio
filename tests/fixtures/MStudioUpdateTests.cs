@@ -60,7 +60,16 @@ static class NativeUpdateTests
         string project = job.projectId;
         job.projectId = "--other";
         Expect<InvalidDataException>(() => MStudioUpdate.Validate(job, args[0], job.appDir));
+        job.projectId = "--home";
+        Expect<InvalidDataException>(() => MStudioUpdate.Validate(job, args[0], job.appDir));
         job.projectId = project;
+        var resume = typeof(MStudioUpdate).GetMethod("ValidResumeArgument", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        if (!(bool)resume.Invoke(null, new object[] { "--home" })) throw new Exception("Explicit home resume was refused.");
+        foreach (var invalid in new[] { "--other", "--HOME", "--home extra", "--home\"", "--home\n" })
+        {
+            try { if ((bool)resume.Invoke(null, new object[] { invalid })) throw new Exception("An arbitrary resume option was accepted."); }
+            catch (System.Reflection.TargetInvocationException error) { if (!(error.InnerException is ArgumentException)) throw; }
+        }
 
         string hash = job.sha256;
         job.sha256 = new String('0', 64);

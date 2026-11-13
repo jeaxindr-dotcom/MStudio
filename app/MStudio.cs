@@ -20,8 +20,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("MStudio")]
 [assembly: AssemblyProduct("MStudio")]
 [assembly: AssemblyDescription("Montage et revue de projets Remotion")]
-[assembly: AssemblyVersion("0.2.7.0")]
-[assembly: AssemblyFileVersion("0.2.7.0")]
+[assembly: AssemblyVersion("0.2.8.0")]
+[assembly: AssemblyFileVersion("0.2.8.0")]
 [assembly: Guid("1832da9f-bb81-469a-8b74-87bb72e405a6")]
 
 static class MStudioProgram
@@ -49,15 +49,18 @@ static class MStudioProgram
                 File.WriteAllText(args[1], L.Lang, new UTF8Encoding(false));
                 return 0;
             }
+            // Reject malformed launch requests before creating a hub or consuming
+            // a scheduled update. An unknown option must never become a blank home.
+            var request = DesktopOpenRequest.Parse(args);
             SetCurrentProcessExplicitAppUserModelID("MStudio.Desktop");
             CoreWebView2Environment.SetLoaderDllFolderPath(InstallDir);
-            using (var running = MStudioUpdate.BeginDesktop(DataDir, InstallDir, args))
+            using (var running = MStudioUpdate.BeginDesktop(DataDir, InstallDir, request.Arguments))
             {
                 if (running == null) return 0;
                 using (var hub = new DesktopHub())
                 {
                     var app = new DesktopApplication(hub);
-                    app.Run(args);
+                    app.Run(request.Arguments);
                 }
             }
             return 0;
@@ -75,6 +78,52 @@ static class MStudioProgram
         try { File.AppendAllText(Path.Combine(DataDir, "desktop.log"), DateTime.Now.ToString("s") + "  " + text + Environment.NewLine); }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
+    }
+}
+
+sealed class DesktopOpenRequest
+{
+    public readonly bool ActivateExisting;
+    public readonly string Route;
+    public readonly string Argument;
+    public string[] Arguments { get { return Argument == null ? new string[0] : new[] { Argument }; } }
+
+    DesktopOpenRequest(bool activateExisting, string route, string argument)
+    {
+        ActivateExisting = activateExisting;
+        Route = route;
+        Argument = argument;
+    }
+
+    public static DesktopOpenRequest Parse(IEnumerable<string> commandLine)
+    {
+        var args = commandLine == null ? new string[0] : commandLine.ToArray();
+        if (args.Length == 0) return new DesktopOpenRequest(true, "", null);
+        if (args.Length != 1)
+            throw new ArgumentException(L.T("Ouvre un seul projet à la fois, ou utilise --home pour ouvrir la bibliothèque.", "Open one project at a time, or use --home to open the library."));
+        var target = args[0];
+        if (String.IsNullOrWhiteSpace(target) || target.Any(Char.IsControl))
+            throw new ArgumentException(L.T("La demande d'ouverture de MStudio est vide ou invalide.", "The MStudio open request is empty or invalid."));
+        if (String.Equals(target, "--home", StringComparison.OrdinalIgnoreCase))
+            return new DesktopOpenRequest(false, "", "--home");
+        if (target.StartsWith("-", StringComparison.Ordinal))
+            throw new ArgumentException(L.T("Option MStudio inconnue : ", "Unknown MStudio option: ") + target);
+        if (File.Exists(target) || Directory.Exists(target))
+        {
+            string absolute = Path.GetFullPath(target);
+            return new DesktopOpenRequest(false, "import?path=" + Uri.EscapeDataString(absolute), absolute);
+        }
+        if (Regex.IsMatch(target, @"^E\d+$", RegexOptions.IgnoreCase))
+        {
+            string id = "E" + target.Substring(1);
+            return new DesktopOpenRequest(false, "go/" + id, id);
+        }
+        if (Regex.IsMatch(target, @"^P[a-f0-9]{8}$", RegexOptions.IgnoreCase))
+        {
+            string id = "P" + target.Substring(1).ToLowerInvariant();
+            return new DesktopOpenRequest(false, "go/" + id, id);
+        }
+        throw new FileNotFoundException(L.T("Projet introuvable : ", "Project not found: ") + target);
     }
 }
 
@@ -96,8 +145,9 @@ sealed class DesktopApplication : WindowsFormsApplicationBase
 
     protected override void OnCreateMainForm()
     {
+        var request = DesktopOpenRequest.Parse(CommandLineArgs);
         hub.Start();
-        MainForm = new StudioWindow(hub.Address(CommandLineArgs));
+        MainForm = new StudioWindow(hub.Address(request));
         dispatcher = new Control();
         dispatcher.CreateControl();
         closeForUpdate = new EventWaitHandle(false, EventResetMode.AutoReset, MStudioUpdate.CloseEvent);
@@ -134,14 +184,24 @@ sealed class DesktopApplication : WindowsFormsApplicationBase
         base.OnShutdown();
     }
 
-    // A double click activates the existing window. Opening another file keeps the
-    // current edit available in its own window and reuses the same project library.
+    // A plain launch activates the current window. An explicit --home or project
+    // request opens another window while preserving the current edit.
     protected override void OnStartupNextInstance(StartupNextInstanceEventArgs e)
     {
         if (closingForUpdate || MStudioUpdate.AssistantRunning()) { e.BringToForeground = false; return; }
-        if (e.CommandLine.Count > 0)
+        DesktopOpenRequest request;
+        try { request = DesktopOpenRequest.Parse(e.CommandLine); }
+        catch (Exception error)
         {
-            var next = new StudioWindow(hub.Address(e.CommandLine));
+            MStudioProgram.Log(error.ToString());
+            MessageBox.Show(error.Message, "MStudio", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            e.BringToForeground = true;
+            base.OnStartupNextInstance(e);
+            return;
+        }
+        if (!request.ActivateExisting)
+        {
+            var next = new StudioWindow(hub.Address(request));
             next.Show();
             next.Activate();
             e.BringToForeground = false;
@@ -256,16 +316,10 @@ sealed class DesktopHub : IDisposable
         }
     }
 
-    public Uri Address(IEnumerable<string> args)
+    public Uri Address(DesktopOpenRequest request)
     {
-        string route = "";
-        foreach (var arg in args)
-        {
-            if (File.Exists(arg) || Directory.Exists(arg)) { route = "import?path=" + Uri.EscapeDataString(Path.GetFullPath(arg)); break; }
-            if (Regex.IsMatch(arg, @"^[EP](?:\d+|[a-f0-9]{8})$", RegexOptions.IgnoreCase))
-                route = "go/" + Uri.EscapeDataString(arg);
-        }
-        return new Uri("http://127.0.0.1:" + port + "/" + route);
+        if (request == null) throw new ArgumentNullException("request");
+        return new Uri("http://127.0.0.1:" + port + "/" + request.Route);
     }
 
     public void Dispose()

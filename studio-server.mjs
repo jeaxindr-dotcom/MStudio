@@ -25,6 +25,7 @@ import { exec, spawn, execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { optionsFrom, episode, pickVideo, stamp, proxyFresh, stillSource, readJson, writeJson, updateJson, nowIso } from './lib/episode.mjs';
 import { videoFrame, codeFrame, codeSignature, sweepStaleTemp } from './lib/frames.mjs';
+import { reviewFrameCache } from './lib/frame-cache.mjs';
 import { parseThumbnailRequest, thumbnailSource, createTimelineThumbnails } from './lib/timeline-thumbnails.mjs';
 import crypto from 'node:crypto';
 import { createLot, resumeLotCaptures, readLot, lotNumbers, saveLotUpdates, lotsSummary, signalLot, connectLine, MAX_EDITS, createRenderLot, withdrawRenderLot, compareItems, CLI as CLI_FILE } from './lib/lots.mjs';
@@ -47,7 +48,9 @@ import { CACHE, DEFAULT_PORT, INSTALLED } from './lib/place.mjs';
 import { MSTUDIO, APP_DATA, APP_VERSION, LAST_PORT, processIdentity, isOwnStudio, assertReviewAvailable } from './lib/app-profile.mjs';
 import { installedUpdateTarget, relayUpdate, updateAction, updateRequestStatus } from './lib/app-update-api.mjs';
 import { projectUpdateDrafts } from './lib/app-update-drafts.mjs';
-import { project, tracksOf, shotsUsedIn } from './lib/projects.mjs';
+import { createDesktopHubResolver } from './lib/desktop-hub.mjs';
+import { openDesktop } from './lib/desktop-open.mjs';
+import { project, tracksOf, shotsUsedIn, registry } from './lib/projects.mjs';
 import { genericTimelineBuilder, normalizeTimeline } from './lib/remotion-module.mjs';
 import { hfPlayerBuilder, hfTimelineBuilder, hfFor, hfComposition, injectHead } from './lib/hyperframes.mjs';
 import { stripTypeScriptTypes } from 'node:module';
@@ -69,9 +72,22 @@ import { chatAvailable, imageModel, readChat, sendChat, stopJob, sortInbox, auto
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
-const updateHub = args.includes('--hub') && MSTUDIO && installedUpdateTarget(HERE) ? args[args.indexOf('--hub') + 1] : null;
 const epArg = args.find((a) => /^E\d+$/i.test(a)), projArg = args.includes('--project') ? args[args.indexOf('--project') + 1] : null;
 if (!epArg && !projArg) { console.error(t('srv.usage')); process.exit(1); }
+// User-facing opens belong to the desktop application. The hub deliberately
+// launches its server children with --no-open, so this cannot recurse.
+if (MSTUDIO && !args.includes('--no-open') && fs.existsSync(path.join(HERE, 'MStudio.exe'))) {
+  const flag = name => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
+  await openDesktop(projArg || epArg, {theatre:flag('--theatre'), episodes:flag('--episodes'), remotion:flag('--remotion')});
+  process.exit(0);
+}
+const explicitHub = args.includes('--hub') ? args[args.indexOf('--hub') + 1] : null;
+const desktopHub = MSTUDIO ? createDesktopHubResolver({appDir:HERE, dataDir:APP_DATA}) : null;
+let navigationHub = explicitHub || await desktopHub?.find() || null;
+// A discovered library is enough for Home; updates also require the library
+// to own this server so it can check activity, stop it and resume its project.
+let attachedHub = explicitHub;
+let updateHub = MSTUDIO && installedUpdateTarget(HERE) ? attachedHub : null;
 const P = projArg ? project(projArg) : episode(epArg, optionsFrom(args));
 const B = P.kind === 'brambleshire';   // an episode: live preview of the code, staging, render; a project: the video only
 const G = P.kind === 'remotion';       // a run of a Remotion pipeline (.coulisses): its code played live, before any export
@@ -79,7 +95,17 @@ const HFP = P.kind === 'hyperframes';   // a HyperFrames project (.coulisses mot
 const CODE = B || G || HFP;
 const XP = G || HFP;                    // a project exported from the studio (its export script, or « hyperframes render »)
 const { ep, folder, EP, REVUE, NOTES, REPLIES, SNAP, IMAGES, PROXY, PROXY_INFO } = P;
-const updateDrafts = updateHub ? projectUpdateDrafts(APP_DATA, NOTES, APP_VERSION) : null;
+let updateDrafts = updateHub ? projectUpdateDrafts(APP_DATA, NOTES, APP_VERSION) : null;
+const libraryProjectId = () => P.id || registry().projects.find(entry =>
+  path.resolve(entry.revue).toLowerCase() === path.resolve(REVUE).toLowerCase())?.id || ep;
+async function refreshDesktopHub(force = false) {
+  if (!desktopHub || explicitHub) return navigationHub;
+  navigationHub = await desktopHub.find(force);
+  if (attachedHub !== navigationHub) attachedHub = null;
+  updateHub = installedUpdateTarget(HERE) ? attachedHub : null;
+  if (updateHub && !updateDrafts) updateDrafts = projectUpdateDrafts(APP_DATA, NOTES, APP_VERSION);
+  return navigationHub;
+}
 const LOCK = path.join(REVUE, 'studio.lock.json');
 const ownStudiosOnly = MSTUDIO || process.env.COULISSES_V2_OWN_STUDIOS === '1';
 // An isolated hub may import an existing review. Check before making its media
@@ -299,7 +325,7 @@ function meta() {
     ...(updateDrafts?.exists() ? {hasUpdateDraft:true} : {}),
     code: { status: player.state.status, version: player.state.version, hash: player.state.hash, error: player.state.error, builtAt: player.state.builtAt },
     agent: agentState(), connectLine: connectLine(P),
-    hub: args.includes('--hub') ? args[args.indexOf('--hub') + 1] : null, held,
+    hub: navigationHub, desktopUpdates:!!updateHub, libraryProjectId:libraryProjectId(), held,
     lang: lang(), langSource: langSource(), coulissesFile: coulissesOf(P),
     // the 3D shots this run shows as media (« Ouvrir la scène 3D » on their clip), and where this run's render is used
     shots3d: G && P.coulisses ? shotsUsedIn(P.coulisses) : [], usedIn: G ? (P.uses ?? []) : [],
@@ -344,7 +370,7 @@ const fpsNow = () => (Date.now() - fpsMemo.t < 10000 ? fpsMemo.v : (fpsMemo = { 
 function status() {   // what changes often: polled by the page every 3 s with the replies
   const replies = readJson(REPLIES, { notes: {} }), video = pickVideo(P);
   refreshProxy();
-  return { code: { status: player.state.status, version: player.state.version, hash: player.state.hash, error: player.state.error, builtAt: player.state.builtAt }, agent: agentState(), lots: lotsSummary(P, replies, listRuns(P)), timeline: { version: timeline.state.version, status: timeline.state.status, error: timeline.state.error },
+  return { hub:navigationHub, desktopUpdates:!!updateHub, code: { status: player.state.status, version: player.state.version, hash: player.state.hash, error: player.state.error, builtAt: player.state.builtAt }, agent: agentState(), lots: lotsSummary(P, replies, listRuns(P)), timeline: { version: timeline.state.version, status: timeline.state.status, error: timeline.state.error },
     render: B ? renderState(P) : null, export: XP ? exportState(P) : null, shot: G && P.uses?.length ? shotState(P) : null, shotTargets: G && P.uses?.length ? shotTargets(P) : null, held, video: video ? stamp(video) : null, compare: compareItems(P).map((x) => x.id), proxy: proxyState, speed: speedState(P), plans: plansNow(), reviewSound: rsNow() };
 }
 // The user's notes (revue/notes.json), the page's file. Code review 18/10/2026: an unreadable notes.json (cut short by
@@ -523,7 +549,7 @@ function resumeLotUpdates() {
 }
 process.on('unhandledRejection', (e) => console.error(`  ${time()}  ${t('srv.ignored', { msg: e?.message ?? e })}`));
 
-const FRAME_CACHE = path.join(CACHE, 'frames', ep);
+const FRAME_CACHE = reviewFrameCache(CACHE, REVUE);
 const codeSheet = (B || G) ? timelineCodeThumbnails({
   project: P,
   current: (version, hash) => player.state.status === 'ready' && player.state.version === version && (!hash || player.state.hash === hash),
@@ -550,6 +576,20 @@ const server = http.createServer(async (req, res) => {
   let pn; try { pn = decodeURIComponent(url.pathname); } catch { res.writeHead(400); return res.end('bad address'); }
   try {
     if (pn === '/api/ping') return json(res, { studio: true, pid: process.pid, notesFile: NOTES, ...(MSTUDIO ? processIdentity() : {}) });
+    if (pn === '/api/desktop-hub' && req.method === 'POST' && desktopHub) {
+      const code = updateRequestStatus(req, 'attach');
+      if (code !== 200) return json(res, {ok:false}, code);
+      let request;
+      try { request = JSON.parse(await body(req, 8192)); } catch { return json(res, {ok:false}, 400); }
+      const verified = await desktopHub.find(true);
+      if (!verified || request.hub !== verified || request.projectId !== libraryProjectId()) return json(res, {ok:false}, 409);
+      navigationHub = verified;
+      attachedHub = verified;
+      updateHub = installedUpdateTarget(HERE) ? verified : null;
+      if (updateHub && !updateDrafts) updateDrafts = projectUpdateDrafts(APP_DATA, NOTES, APP_VERSION);
+      return json(res, {ok:true, hub:verified, projectId:libraryProjectId()});
+    }
+    if (pn === '/api/meta' || pn === '/api/status' || pn.startsWith('/api/app-update')) await refreshDesktopHub();
     if (pn === '/app-update-ui.js' || pn === '/app-update.css') return sendFile(req, res, path.join(HERE, 'page', pn.slice(1)), pn.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8');
     if (pn === '/api/app-update-draft') {
       if (!updateDrafts) return json(res, {}, 404);
@@ -579,7 +619,7 @@ const server = http.createServer(async (req, res) => {
       const code = updateRequestStatus(req, operation);
       if (code !== 200) return json(res, {error:'invalid-request'}, code);
       try {
-        const reply = await relayUpdate(updateHub, operation, ep);
+        const reply = await relayUpdate(updateHub, operation, libraryProjectId());
         return json(res, reply.data, reply.status);
       } catch { return json(res, {error:t('common.appUpdate.libraryUnavailable')}, 503); }
     }
@@ -729,7 +769,7 @@ const server = http.createServer(async (req, res) => {
       const m = meta(); if (m.hub) m.hub = publicUrl(req, m.hub); m.remote = viaTailnet(req);
       return json(res, m);
     }
-    if (pn === '/api/status') return json(res, status());
+    if (pn === '/api/status') { const s = status(); if (s.hub) s.hub = publicUrl(req, s.hub); return json(res, s); }
     if (pn === '/api/work-area' && req.method === 'PATCH') {
       let data;
       try { data = JSON.parse((await body(req, 2048)).toString('utf8')); } catch { return json(res, { error: 'invalid-work-area' }, 400); }
