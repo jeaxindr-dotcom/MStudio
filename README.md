@@ -19,7 +19,7 @@ Tested with [Lucas Vieira’s public-domain animation](https://commons.wikimedia
 
 ## Windows installation
 
-For a first installation, download and run `MStudio-Setup-0.2.6-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
+For a first installation, download and run `MStudio-Setup-0.2.7-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
 
 For subsequent versions, click **Update** in the library or an open project. Once the download is verified, choose **Restart and install now** or **Install next time MStudio opens**. **Cancel** dismisses the dialog and keeps the downloaded installer.
 
@@ -28,6 +28,7 @@ For subsequent versions, click **Update** in the library or an open project. Onc
 When building on Windows, prefer a short checkout path such as `C:\src\MStudio`. If Inno Setup reports that it cannot find the path from a deeply nested checkout, reopen the project through a short path and rerun the build command below.
 
 - The library opens projects in review, timeline and storyboard views. Use **Agent** for feedback tied to a frame, and **Scene** for staging where a project supports it.
+- The library remembers project titles and folders even when a project is unavailable. If its `.coulisses` file points to a moved review folder, the library updates the link. Remotion projects can show a thumbnail rendered from their code before their first video export.
 - In the **Current code** monitor, **Playback resolution** offers Auto, 100%, ¾, ½ and ¼. At ½, a 1920 × 1080 3D scene draws at 960 × 540. To review a passage with sound at the project frame rate, move the playhead to its start and click **Prepare 30 s**. Prepared ranges also use the selected resolution. **Return to live code** restores the displayed frame. Exports use their own settings.
 - In **Scene → Scene elements**, search for an object by name to select it even when something else hides it. Double-click its name to frame it; hold the middle button and drag to orbit that object. In **Free camera**, left-click to select, hold the middle button and drag to orbit, right-drag to pan, and scroll to zoom. **3D grid** shows a ground plane and compass in the editor only; the film and review snapshots stay clean.
 - In a rebuilt project, edit `src/layers.json` for geometry and keyframes or `src/Scene.tsx` for the React drawing code. Run `npm run studio` to preview or `npm run render` to export from its folder. The bundled engine is linked on the authoring machine; for a standalone copy, install the dependencies from its `package.json`.

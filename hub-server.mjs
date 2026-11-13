@@ -26,6 +26,7 @@ import { createAppUpdates } from './lib/app-updates.mjs';
 import { cancelScheduledUpdate, installationStatus, readScheduledInstaller, scheduleAppUpdate } from './lib/app-update-install.mjs';
 import { createUpdateController, installedUpdateTarget, updateAction, updateRequestStatus } from './lib/app-update-api.mjs';
 import { ffmpeg, sweepStaleTemp } from './lib/frames.mjs';
+import {libraryCodeThumbnails} from './lib/library-code-thumbnails.mjs';
 import { renderState } from './lib/render.mjs';
 import { registry, importProject, removeProject, project, revueOf, folderOf, setFolder, renameFolder } from './lib/projects.mjs';
 import { drives, startScan, scanState, stopScan } from './lib/scan.mjs';
@@ -88,6 +89,7 @@ function limited(concurrency) {
   };
 }
 const probeQueue = limited(2), thumbnailQueue = limited(2), execProbe = promisify(execFile);
+const codeThumbnails = libraryCodeThumbnails({dir:path.join(CACHE,'hub')});
 // a video's duration, by ffprobe in the background (never inside the request: the list is asked every 5 s); unknown
 // until it answers, then shown on the next refresh
 const durations = new Map(), measuring = new Set();
@@ -103,15 +105,21 @@ function durationOf(file, st) {
 }
 function projects() {
   const reg = registry();
-  return reg.projects.map(({ id, revue }) => {
+  return reg.projects.map(entry => {
+    const {id, revue} = entry;
     const st = studios.get(id), live = st && (st.paused || (st.proc.exitCode === null && st.url)) ? { url: st.url, paused: !!st.paused } : null;
     try {
       const p = project(revue), v = p.summary.video;
       const engine = p.kind === 'remotion' ? 'remotion' : p.kind === 'hyperframes' ? 'hyperframes' : null;   // the home screen's tag (09/10/2026)
       const reverse = p.kind === 'remotion' && fs.existsSync(path.join(p.EP,'reverse.json')) && readJson(p.coulisses,{})?.reverse === 1;
-      return { id, project: true, reverse, kind: p.kind, engine, channel: p.summary.channel ?? null, folder: folderOf(id, p.summary.channel ?? null, reg), coulisses: p.coulisses ?? null, format: p.summary.format, title: p.title, root: p.EP, revue, video: v, thumb: !!v || reverse,
-        duration: v ? durationOf(p.summary.videoPath, v) : null, ...reviewStats(revue), studio: live };
-    } catch (e) { return { id, project: true, missing: true, revue, folder: folderOf(id, null, reg), title: path.basename(path.dirname(revue)), why: e.message, studio: live }; }
+      return { id, project: true, reverse, kind: p.kind, engine, channel: p.summary.channel ?? null, folder: folderOf(id, p.summary.channel ?? null, reg), coulisses: p.coulisses ?? null, format: p.summary.format, title: p.title, root: p.EP, revue:p.REVUE, video: v,
+        ...(p.kind === 'remotion' ? codeThumbnails.describe(p) : {thumb:!!v || reverse}),
+        duration: v ? durationOf(p.summary.videoPath, v) : null, ...reviewStats(p.REVUE), studio: live };
+    } catch (e) {
+      return { id, project: true, missing: true, revue,
+        channel:entry.channel ?? null, kind:entry.kind ?? null, folder:folderOf(id,entry.channel ?? null,reg),
+        title:entry.title || path.basename(path.dirname(revue)), why:e.message, studio:live };
+    }
   });
 }
 // the Theatre section of the home screen: its name is the channel its episodes' .coulisses give (the user's own), else
@@ -137,13 +145,15 @@ function episodes() {
     const mp4 = path.join(dir, `${folder}.mp4`), video = fs.existsSync(mp4) ? stamp(mp4) : null;
     const snap = readJson(path.join(revue, 'timeline.json'), null);
     const poster = fs.statSync(path.join(dir,'thumbnail.jpg'),{throwIfNoEntry:false});
+    const codeThumb = !poster && !video && fs.existsSync(path.join(O.remotionDir,'src','index.ts'));
     const st = studios.get(id), R = renderState({ REVUE: revue });   // a re-render asked from the studio (lib/render.mjs)
     const render = R && (R.state === 'running' || ((R.state === 'rendered' || R.state === 'blocked' || R.state === 'failed') && Date.now() - Date.parse(R.updatedAt) < 3 * 86400e3))
       ? { state: R.state, phase: R.phase, pct: R.render?.stage === 'frames' ? Math.floor(R.render.pct) : null } : null;
     return {
       render, engine: 'remotion', channel: theatreChannel(), folder: folderOf(id, theatreChannel(), reg), dir: folder,
       id, title: folder.replace(/^E\d+ - /i, ''), video, duration: snap ? snap.frames / (snap.fps || 30) : null,
-      ...reviewStats(revue), thumb: !!poster || !!video, thumbVersion: poster ? String(poster.mtimeMs) : video?.mtime,
+      ...reviewStats(revue), codeThumb,
+      ...(codeThumb ? codeThumbnails.describe(episode(id,O)) : {thumb:!!poster || !!video, thumbVersion:poster ? String(poster.mtimeMs) : video?.mtime}),
       studio: st && (st.paused || (st.proc.exitCode === null && st.url)) ? { url: st.url, paused: !!st.paused } : null,
     };
   });
@@ -161,11 +171,22 @@ function catalog() {
 const thumbJobs = new Map();
 async function thumb(id) {
   if (!id) return null;
-  const item = (catalogCache || catalog()).index.get(id);
+  const item = catalog().index.get(id);
   if (!item?.thumb) return null;
   let src;
-  if (item.project) src = project(item.revue).summary.videoPath || (item.reverse && path.join(item.root,'public','media','source.mp4'));
+  if (item.project) {
+    const p = project(item.revue);
+    if (p.kind === 'remotion') {
+      try { return await codeThumbnails.get(p); }
+      catch (e) { log(`Vignette ${id}: ${e.message}`); }
+    }
+    src = p.summary.videoPath || (item.reverse && path.join(item.root,'public','media','source.mp4'));
+  }
   else {
+    if (item.codeThumb) {
+      try { return await codeThumbnails.get(episode(id,O)); }
+      catch (e) { log(`Vignette ${id}: ${e.message}`); }
+    }
     const dir = path.join(O.episodesDir,item.dir), poster = path.join(dir,'thumbnail.jpg');
     src = fs.existsSync(poster) ? poster : path.join(dir,item.dir + '.mp4');
   }
@@ -230,7 +251,7 @@ async function pause(id) {
   log(t('hubsrv.paused', { id })); return true;
 }
 async function quit() {
-  await Promise.allSettled([reverseJobs.close(), reconstructionJobs.close()]);
+  await Promise.allSettled([reverseJobs.close(), reconstructionJobs.close(), codeThumbnails.close()]);
   for (const st of studios.values()) if (st.proc.exitCode === null) await killTree(st.proc.pid);
   if (mine.size) await Promise.race([Promise.all([...mine].map((p) => unserve(p))), new Promise((r) => setTimeout(r, 4000))]);   // (the ports it brought to the tailnet, taken back)
   log(t('hubsrv.quit')); process.exit(0);
@@ -508,7 +529,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req); await browserAccess(!!b.on);
       return json(res, { ok: true, ...(await browserAccessState(true)) });
     }
-    if (pn.startsWith('/thumb/')) { const f = await thumb(normId(pn.slice(7)) ?? ''); if (!f) return send(res, 404, 'text/plain', 'no thumbnail'); res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=3600' }); return fs.createReadStream(f).pipe(res); }
+    if (pn.startsWith('/thumb/')) { const f = await thumb(normId(pn.slice(7)) ?? ''); if (!f) return send(res, 404, 'text/plain', 'no thumbnail'); res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' }); return fs.createReadStream(f).pipe(res); }
     const go = /^\/go\/(E\d+|P[0-9a-f]{8})$/i.exec(pn);
     if (go) {
       const id = normId(go[1]);

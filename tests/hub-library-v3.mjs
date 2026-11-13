@@ -23,6 +23,12 @@ function episode(id,title) {
 }
 async function stop() {
   if (server && server.exitCode === null) try {execFileSync('taskkill',['/PID',String(server.pid),'/T','/F'],{stdio:'ignore',windowsHide:true});} catch {}
+  if (server && server.exitCode === null) await new Promise(resolve=>server.once('exit',resolve));
+}
+async function start() {
+  server = spawn(process.execPath,['hub-server.mjs','--port',String(port),'--episodes',episodes,'--theatre',root,'--studio-port',String(await freePort(4438))],{cwd:studio,env,stdio:'ignore',windowsHide:true});
+  for (let i=0; i<100; i++) {if(await fetch(base+'/api/ping').then(r=>r.ok).catch(()=>false)) return; await delay(100);}
+  throw new Error('Le hub isolé ne répond pas.');
 }
 const click = selector => page.eval('document.querySelector('+JSON.stringify(selector)+').click()');
 const read = expression => page.eval('return '+expression);
@@ -30,8 +36,7 @@ try {
   const e03 = episode('E03','Le jardin');
   write(path.join(e03.review,'timeline.json'),{fps:25, frames:75});
   execFileSync('ffmpeg',['-v','error','-y','-f','lavfi','-i','testsrc2=s=320x180:r=25:d=3','-c:v','libx264','-pix_fmt','yuv420p',path.join(e03.dir,'E03 - Le jardin.mp4')],{windowsHide:true});
-  server = spawn(process.execPath,['hub-server.mjs','--port',String(port),'--episodes',episodes,'--theatre',root,'--studio-port',String(await freePort(4438))],{cwd:studio,env,stdio:'ignore',windowsHide:true});
-  for (let i=0; i<100; i++) {if(await fetch(base+'/api/ping').then(r=>r.ok).catch(()=>false)) break; await delay(100);}
+  await start();
   const response = await fetch(base+'/api/episodes'), tag = response.headers.get('etag');
   assert.ok(tag); assert.equal((await response.json()).episodes.length,1);
   const unchanged = await fetch(base+'/api/episodes',{headers:{'if-none-match':tag}});
@@ -102,6 +107,48 @@ try {
   assert.equal(await read("document.getElementById('libraryNavToggle').textContent"),'Browse');
   assert.deepEqual(page.logs.filter(l=>l.startsWith('[exception]')),[]);
   pass('Le changement de langue recharge la bibliothèque en anglais.');
+
+  // A source can disappear between two launches (offline drive, moved files).
+  // Its saved title/channel and the user's folder still belong to its library row.
+  await page.size(1280,900);
+  await click('#langs [data-l=fr]');
+  await page.until("document.documentElement.lang === 'fr'");
+  const source=path.join(videoDir,'memoire.coulisses');
+  write(source,{coulisses:1,moteur:'video',titre:'Un titre mémorisé',chaine:'Chaîne mémoire',revue:'revue-memoire',export:{dossier:'.'}});
+  const registration=await fetch(base+'/api/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:source})}).then(r=>r.json());
+  assert.equal(registration.ok,true);
+  const remembered=registration.project, folder='Travaux conservés';
+  assert.equal((await fetch(base+'/api/folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[remembered.id],folder})}).then(r=>r.json())).ok,true);
+  await page.until("document.querySelector('#folderLinks [data-folder=\"Travaux conservés\"]')",15000);
+  await click('#folderLinks [data-folder="Travaux conservés"]');
+  const cardSelector='.card[data-id="'+remembered.id+'"]';
+  await page.until("document.querySelector("+JSON.stringify(cardSelector)+")?.querySelector('.open').disabled === false");
+  fs.unlinkSync(source);
+  fs.unlinkSync(path.join(remembered.revue,'projet.json'));
+  const missingInPage="document.querySelector("+JSON.stringify(cardSelector)+")?.querySelector('.open').disabled === true";
+  await page.until(missingInPage,15000);
+  const assertRememberedMissing=async()=>{
+    await page.until(missingInPage,15000);
+    assert.match(await read("document.querySelector("+JSON.stringify(cardSelector)+").querySelector('.thumb .id').textContent"),/introuvable/i);
+    assert.equal(await read("document.querySelector("+JSON.stringify(cardSelector)+").querySelector('.title').textContent"),'Un titre mémorisé');
+    assert.equal(await read("document.querySelector("+JSON.stringify(cardSelector)+").closest('[data-folder]').dataset.folder"),folder);
+    assert.equal(await read("document.querySelector('#featureTitle').textContent"),'Un titre mémorisé');
+    assert.equal(await read("document.querySelector('#featureOpen').disabled"),true);
+    assert.match(await read("document.querySelector('#featureMeta').textContent"),/Chaîne mémoire/);
+    const catalog=await fetch(base+'/api/episodes').then(r=>r.json());
+    const row=catalog.projects.find(p=>p.id===remembered.id);
+    assert.equal(row.missing,true); assert.ok(!row.archived);
+    assert.equal(row.title,'Un titre mémorisé'); assert.equal(row.channel,'Chaîne mémoire'); assert.equal(row.folder,folder);
+  };
+  await page.goto(base);
+  await assertRememberedMissing();
+  pass('Une source devenue introuvable conserve titre, chaîne et dossier après rechargement, avec ouverture désactivée.');
+  await page.goto('about:blank');
+  await stop(); await start();
+  await page.goto(base);
+  await assertRememberedMissing();
+  assert.deepEqual(page.logs.filter(l=>l.startsWith('[exception]')),[]);
+  pass('Après arrêt et redémarrage du hub, le projet reste classé avec son identité et son état introuvable.');
   console.log(passed+' ok, 0 ko');
 } catch(error) {
   console.error(error, page?.logs.filter(l=>l.startsWith('[exception]')).slice(-4)); console.log(passed+' ok, 1 ko'); process.exitCode=1;
