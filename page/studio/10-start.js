@@ -42,9 +42,7 @@
       else { document.body.classList.add('nohub'); $('#bHome').classList.add('off'); $('#bHome').querySelector('.why').textContent = T('menu.why.noHub'); }
       $('#title').textContent = PROJ ? META.title : `${META.episode} · ${META.title}`;
       $('#render').textContent = META.render ? T('st.start.render', { name: META.render.name, what: T(PROJ ? 'st.start.exported' : 'st.start.rendered'), date: FR ? new Date(META.render.mtime).toLocaleString() : new Date(META.render.mtime).toLocaleString('en-US', { hour12: false }) }) : META.features?.code ? T('st.start.liveCode') : T('st.start.noVideo');
-      if (PROJ) { /* no episode plan: the montage plan (if any) gives the tracks */ }
-      else if (!SNAP) { $('#warn').style.display = 'block'; $('#warn').textContent = T('st.start.noPlan'); }
-      else if (!META.snapshotMatches) { $('#warn').style.display = 'block'; $('#warn').textContent = T('st.start.stalePlan'); }
+      updateEpisodePlanNotice();   // the live timeline may still be loading; an export snapshot is not needed in Code
       // the notes: read, or nothing is saved (a file there but unreadable answers 503: said, the page saves nothing over it)
       const nr = await fetch('/api/notes', { cache: 'no-store' });
       const data = nr.ok ? await nr.json() : null;

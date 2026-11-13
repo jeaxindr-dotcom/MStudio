@@ -614,18 +614,19 @@
       return { scene: at.find((x) => x.tr.type === 'band')?.c.label ?? '', lines: [],
         clips: at.filter((x) => x.tr.type !== 'band').map(({ tr, c }) => T('st.ctx.clip', { track: tr.name, label: c.label, file: c.file ? ` · ${c.file}, ${inClip(tr, c, t)}` : '', off: c.off ? T('st.ctx.off') : '' })) };
     }
-    if (!SNAP) return { scene: '', lines: [] };
+    const plan = selectEpisodeContextPlan();
+    if (!plan) return { scene: '', lines: [] };
     const t0 = (f0 + 0.5) / FPS, t1 = (f1 + 0.5) / FPS, t = t0;
     let scene = '';
-    const cut = SNAP.cutaways.find((c) => t >= c.t && t < c.t + c.dur);
-    if (cut) scene = cut.name;
+    const cut = (plan.cutaways ?? []).find((c) => t >= c.t && t < c.t + c.dur);
+    if (cut) scene = cut.name ?? cut.id ?? '';
     else {
-      const on = SNAP.sets.filter((w) => w.inT <= t && t < (w.outT ?? 1e9) + w.outDur).sort((a, b) => b.inT - a.inT)[0];
+      const on = (plan.sets ?? []).filter((w) => w.inT <= t && t < (w.outT ?? 1e9) + w.outDur).sort((a, b) => b.inT - a.inT)[0];
       if (on) scene = t < on.inT + on.inDur ? T('st.ctx.arrives', { name: on.name }) : (on.outT !== null && t >= on.outT ? T('st.ctx.leaves', { name: on.name }) : on.name);
-      let open = false; for (const c of SNAP.curtain) { if (c.t > t) break; open = c.open; }
+      let open = !plan.curtain?.length; for (const c of plan.curtain ?? []) { if (c.t > t) break; open = c.open; }
       if (!open) scene = scene ? `${scene} · ${T('st.ctx.curtain')}` : T('st.ctx.curtain');
     }
-    const lines = SNAP.says.filter((s) => s.t <= t1 && s.t + s.dur + 0.4 >= t0).slice(0, 14).map((s) => T('st.ctx.line', { id: s.id, who: who(s.actor), text: s.text }));
+    const lines = (plan.says ?? []).filter((s) => s.t <= t1 && s.t + s.dur + 0.4 >= t0).slice(0, 14).map((s) => T('st.ctx.line', { id: s.id, who: who(s.actor), text: s.text }));
     return { scene, lines };
   }
 

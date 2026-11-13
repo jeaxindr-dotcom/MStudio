@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync, spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import {launch, requireSandbox} from './cdp.mjs';
-import {freePort} from './where.mjs';
+import {freePort, remotionModules} from './where.mjs';
 
 const studio = fileURLToPath(new URL('../', import.meta.url));
 const cache = path.join(studio, '.cache', 'timeline-filmstrip');
@@ -23,7 +23,7 @@ const episodeName = 'E03 - Trois couleurs';
 const episodes = path.join(run, 'episodes'), episode = path.join(episodes, episodeName);
 const project = path.join(run, 'montage'), renders = path.join(project, '07-renders');
 const write = (file, data) => fs.writeFileSync(file, JSON.stringify(data));
-let page, server, port, passed = 0;
+let page, server, port, passed = 0, codeModules = null;
 function pass(label) { passed++; console.log('✓ ' + label); }
 
 async function stopServer() {
@@ -32,7 +32,7 @@ async function stopServer() {
   catch { /* server already stopped */ }
   server = null;
 }
-async function open(args) {
+async function open(args, {code = false} = {}) {
   await stopServer();
   const url = 'http://127.0.0.1:' + port;
   server = spawn(process.execPath, ['studio-server.mjs', ...args, '--port', String(port), '--no-open'],
@@ -46,7 +46,7 @@ async function open(args) {
   assert.ok(ready);
   await requireSandbox(url, run);
   await page.goto(url);
-  await page.until('window.__studio && document.querySelector("#v").readyState >= 2 && document.querySelector("#timelineThumbnails")');
+  await page.until('window.__studio && ' + (code ? '__studio.state().mode === "code"' : 'document.querySelector("#v").readyState >= 2') + ' && document.querySelector("#timelineThumbnails")');
 }
 const click = selector => page.eval('document.querySelector(' + JSON.stringify(selector) + ').click()');
 
@@ -82,7 +82,7 @@ async function colours(samples) {
   catch {
     const observed = await page.eval('return [' + probes.join(',') + ']');
     const missing = samples.filter((_,i) => !observed[i]);
-    const state = await page.eval('return {view:__studio.state().view,lanes:__studio.state().lanes}');
+    const state = await page.eval('return {view:__studio.state().view,lanes:__studio.state().lanes,mode:__studio.state().mode,hidden:document.hidden,button:{disabled:document.querySelector("#renderTimelineThumbnails").disabled,title:document.querySelector("#renderTimelineThumbnails").title},requests:performance.getEntriesByType("resource").filter(r=>r.name.includes("thumbnails")).map(r=>({url:r.name,duration:r.duration})),messages:document.body.innerText.slice(-1600)}');
     assert.fail('Couleurs de pellicule absentes : ' + JSON.stringify({missing, state}));
   }
 }
@@ -146,6 +146,28 @@ try {
   await open(['--project',importProject(plain).revue]);
   await colours([[2,'red'],[6,'green'],[10,'blue']]);
   pass('Un MP4 seul possède sa pellicule en l’absence de plan de montage.');
+
+  const modules = remotionModules();
+  if (modules) {
+    const codeRoot=path.join(run,'code-only'), src=path.join(codeRoot,'src');
+    fs.mkdirSync(src,{recursive:true});
+    codeModules=path.join(codeRoot,'node_modules'); fs.symlinkSync(modules,codeModules,'junction');
+    write(path.join(codeRoot,'package.json'),{name:'filmstrip-code-only',private:true});
+    fs.writeFileSync(path.join(src,'coulisses.tsx'),`import React from 'react';
+      import {AbsoluteFill,useCurrentFrame} from 'remotion';
+      const Film=()=> <AbsoluteFill style={{backgroundColor:['red','lime','blue'][Math.min(2,Math.floor(useCurrentFrame()/120))]}}/>;
+      export const compositions=[{id:'FilmstripCode',component:Film,width:320,height:180,fps:30,durationInFrames:360}];
+      export const timeline=()=>({fps:30,durationInFrames:360,pistes:[{id:'scenes',nom:'Scènes',type:'video',clips:[
+        {de:0,a:120,label:'Scène rouge'},{de:120,a:240,label:'Scène verte'},{de:240,a:360,label:'Scène bleue'}]}]});`);
+    fs.writeFileSync(path.join(src,'index.tsx'),`import React from 'react';import {Composition,registerRoot} from 'remotion';
+      import {compositions} from './coulisses';registerRoot(()=> <Composition {...compositions[0]}/>);`);
+    const descriptor=path.join(codeRoot,'film.coulisses');
+    write(descriptor,{coulisses:1,titre:'Code sans MP4',revue:'revue',remotion:{projet:'.',entree:'src/index.tsx',module:'src/coulisses.tsx',composition:'FilmstripCode'}});
+    await open(['--project',importProject(descriptor).revue],{code:true});
+    assert.equal(await page.eval('return __studio.state().video'),null);
+    await colours([[2,'red'],[6,'green'],[10,'blue']]);
+    pass('Sans MP4, les scènes du code affichent automatiquement leurs vraies images sans cliquer sur le calcul.');
+  } else console.log('(vignettes code non vérifiées : moteur Remotion absent)');
   console.log(passed + ' ok, 0 ko');
 } catch (error) {
   console.error(error, page?.logs.filter(text => text.includes('exception')).slice(-4));
@@ -153,5 +175,6 @@ try {
 } finally {
   await page?.close();
   await stopServer();
+  if (codeModules && fs.existsSync(codeModules)) fs.unlinkSync(codeModules);
   if (path.dirname(run) === cache) fs.rmSync(run, {recursive:true, force:true, maxRetries:4, retryDelay:250});
 }

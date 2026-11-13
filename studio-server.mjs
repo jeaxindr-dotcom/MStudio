@@ -41,6 +41,7 @@ import { validPlaybackScale } from './lib/code-playback-scale.mjs';
 import { renderCodeRange } from './lib/code-playback-render.mjs';
 import { codePlaybackSources } from './lib/code-playback-sources.mjs';
 import { timelineCodeThumbnails } from './lib/timeline-code-thumbnails.mjs';
+import {librarySources} from './lib/library-code-thumbnails.mjs';
 import { peaksOf } from './lib/peaks.mjs';
 import { CACHE, DEFAULT_PORT, INSTALLED } from './lib/place.mjs';
 import { MSTUDIO, APP_DATA, APP_VERSION, LAST_PORT, processIdentity, isOwnStudio, assertReviewAvailable } from './lib/app-profile.mjs';
@@ -187,17 +188,17 @@ async function releasePlaybackOwner(entry) {
   const shared = [...playbackOwners.values()].some((other) => other !== entry && !other.cancelled && (other.id === entry.id || other.requestKey === entry.requestKey));
   if (shared) await CODE_PLAYBACK.waitForIdle(entry.id); else await CODE_PLAYBACK.cancelAndWait(entry.id);
 }
-async function playbackGeneration(dimensions = {}, sourceOptions) {
+async function playbackGeneration(dimensions = {}, sourceOptions, sourceFingerprint = codePlaybackSources) {
   // Une source enregistrée juste avant la demande peut précéder le debounce du
   // constructeur. L'empreinte seule ne permet pas de lui attribuer l'ancien hash.
-  const before = await codePlaybackSources(P, sourceOptions);
+  const before = await sourceFingerprint(P, sourceOptions);
   sourceOptions?.signal?.throwIfAborted();
   await player.build(); await timelineChain;
   sourceOptions?.signal?.throwIfAborted();
   if (!CODE_PLAYBACK || player.state.status !== 'ready' || timeline.state.status !== 'ready' || timelineCodeVersion !== player.state.version) throw new Error('Le code et sa frise doivent être prêts pour la même version.');
   const hash = player.state.hash, version = player.state.version, data = timeline.state.data;
   const fps = data.fps || 30, durationInFrames = data.frames || Math.ceil(data.duration * fps);
-  const mediaSignature = await codePlaybackSources(P, sourceOptions);
+  const mediaSignature = await sourceFingerprint(P, sourceOptions);
   if (mediaSignature !== before || player.state.hash !== hash || player.state.status !== 'ready' || timelineCodeVersion !== version || (dimensions.version !== undefined && dimensions.version !== version)) throw new Error('Le code a changé pendant la demande.');
   const width = Number(dimensions.width) || 1920, height = Number(dimensions.height) || 1080;
   if (![width, height].every((v) => Number.isInteger(v) && v > 0 && v <= 16384)) throw new Error('Dimensions de composition invalides.');
@@ -523,14 +524,13 @@ function resumeLotUpdates() {
 process.on('unhandledRejection', (e) => console.error(`  ${time()}  ${t('srv.ignored', { msg: e?.message ?? e })}`));
 
 const FRAME_CACHE = path.join(CACHE, 'frames', ep);
-const demoEngine = path.join(CACHE, 'atelier-v2', '06_Remotion');
-const thumbnailSources = ownStudiosOnly && B && path.resolve(P.remotionDir).toLowerCase() === demoEngine.toLowerCase()
-  ? {sharedPublicRoot: path.resolve(process.env.COULISSES_PREVIEW_ENGINE || optionsFrom([]).remotionDir, 'public')} : undefined;
 const codeSheet = (B || G) ? timelineCodeThumbnails({
   project: P,
   current: (version, hash) => player.state.status === 'ready' && player.state.version === version && (!hash || player.state.hash === hash),
-  generation: (version,signal) => playbackGeneration({version}, {...thumbnailSources,signal}),
-  fingerprint: signal => codePlaybackSources(P, {...thumbnailSources,signal}),
+  // Filmstrip pictures are decorative previews, not certified playback ranges.
+  // A large scene dataset must not prevent the timeline from showing pictures.
+  generation: (version,signal) => playbackGeneration({version}, {signal}, librarySources),
+  fingerprint: signal => librarySources(P, {signal}),
 }) : null;
 // the frames kept (/api/frame): the newest `max`
 function keepFew(dir, max) { try { const l = fs.readdirSync(dir).map((n) => ({ n, t: fs.statSync(path.join(dir, n)).mtimeMs })).sort((a, b) => b.t - a.t); for (const x of l.slice(max)) fs.rmSync(path.join(dir, x.n), { force: true }); } catch { /* gone */ } }

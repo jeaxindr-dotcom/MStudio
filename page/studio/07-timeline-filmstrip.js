@@ -14,14 +14,17 @@ const filmstrip = (() => {
   let enabled = store.get('timelineThumbnails', true) !== false;
   const bitmapCache = new Map(), unavailable = new Set(), failures = new Map();
   const requestedCode = new Set(), cells = new Map();
-  const tilesPerBatch = 8, cacheCapacity = 384;
+  const autoAttempts = new Set();
+  const tilesPerBatch = 8, automaticLimit = 32, cacheCapacity = 384;
   let signature = '', plan = null, epoch = 0, timer, busy = false, controller = null;
+  let viewport = '', autoBlocked = false, activeBatch = null;
+  let codeTiles = [], retryTimer = null, retryCells = [], retryCount = 0;
   toggle.setAttribute('aria-pressed', String(enabled));
   toggle.classList.toggle('on', enabled);
   toggle.onclick = () => {
     enabled = !enabled; store.set('timelineThumbnails', enabled);
     toggle.setAttribute('aria-pressed', String(enabled)); toggle.classList.toggle('on', enabled);
-    if (!enabled) { requestedCode.clear(); controller?.abort(); clearTimeout(timer); timer = null; }
+    if (!enabled) suspend();
     resize();
   };
   const assetTag = (id, index) => new URLSearchParams({track:id, clip:index}).toString();
@@ -29,12 +32,15 @@ const filmstrip = (() => {
   function begin() {
     const render = STATUS.video || META?.render;
     const next = [META?.notesFile, FPS, mode, render?.name, render?.mtime, render?.size,
-      STATUS.timeline?.version, STATUS.code?.hash, STATUS.held].join('|');
+      STATUS.timeline?.version, STATUS.code?.version, STATUS.code?.hash, STATUS.held].join('|');
     if (next !== signature || plan !== LIVE) {
       signature = next; plan = LIVE; epoch++;
       for (const tile of bitmapCache.values()) tile.close();
       bitmapCache.clear(); requestedCode.clear(); unavailable.clear(); failures.clear(); controller?.abort();
+      clearCodeRetry(); retryCount = 0;
+      autoAttempts.clear(); viewport = ''; autoBlocked = false;
     }
+    codeTiles = [...bitmapCache].filter(([key]) => key.startsWith('code|')).map(([key,tile]) => ({tile,frame:Number(key.slice(5))}));
     cells.clear();
   }
   function baseSource() {
@@ -52,6 +58,7 @@ const filmstrip = (() => {
     if (!(pixelsPerFrame > 0)) return;
     const step = Math.max(1, Math.round(stripH * 16 / 9 / pixelsPerFrame));
     const source = asset && !unavailable.has(asset) ? asset : baseSource();
+    const nearby = source === 'code' ? codeTiles.filter(c => c.frame >= first && c.frame < last) : [];
     g.save();
     rr(g, left, y, right - left, height, 3); g.clip();
     g.fillStyle = '#151b20'; g.fillRect(left, y, right - left, height);
@@ -67,8 +74,11 @@ const filmstrip = (() => {
       let tile;
       if (source && right - left >= 5 && stripH >= 8) {
         const key = source + '|' + frame;
-        if (cells.size < 256 || cells.has(key)) cells.set(key, {key, source, frame});
+        if (cells.size < 256 || cells.has(key)) cells.set(key, {key, source, frame, first, last});
         tile = bitmapCache.get(key);
+        // A first image covers its own clip immediately. Refine the strip with
+        // more samples later; never borrow an image across a cut.
+        if (!tile && nearby.length) tile = nearby.reduce((a,b) => Math.abs(a.frame-frame) <= Math.abs(b.frame-frame) ? a : b).tile;
       }
       if (tile) {
         // Crop the tile symmetrically at the clip edge, retaining its aspect ratio.
@@ -89,22 +99,61 @@ const filmstrip = (() => {
   function possible(c) {
     return !bitmapCache.has(c.key) && !failures.has(c.key) && (c.source !== 'code' || requestedCode.has(c.key));
   }
+  function requestAutomatic() {
+    if (!enabled || !M.paused || document.hidden || STATUS.code?.status !== 'ready' || autoBlocked || requestedCode.size) return;
+    const candidates = [...cells.values()].filter(c => c.source === 'code' && !bitmapCache.has(c.key) && !failures.has(c.key) && !autoAttempts.has(c.key));
+    const cachedFrames = codeTiles.map(c => c.frame);
+    const uncovered = new Map();
+    for (const c of candidates) if (!cachedFrames.some(frame => frame >= c.first && frame < c.last)) {
+      const key = c.first + ':' + c.last;
+      if (!uncovered.has(key)) uncovered.set(key,[]);
+      uncovered.get(key).push(c);
+    }
+    // One sample per visible clip takes priority over details. A dense view can
+    // have more than 32 clips, but never queues more than eight images at once.
+    const coverage = [...uncovered.values()].map(group => group[Math.floor(group.length/2)]);
+    const choices = coverage.length ? coverage : candidates;
+    const count = Math.max(0,Math.min(tilesPerBatch, coverage.length ? coverage.length : automaticLimit - autoAttempts.size, choices.length));
+    for (let i = 0; i < count; i++) {
+      const c = choices[Math.floor((i + .5) * choices.length / count)];
+      autoAttempts.add(c.key); requestedCode.add(c.key);
+    }
+  }
   function controls() {
     const code = [...cells.values()].filter(c => c.source === 'code' && !bitmapCache.has(c.key));
     generate.hidden = !enabled || !code.length;
     generate.disabled = code.length === 0 || !M.paused || STATUS.code?.status !== 'ready' || requestedCode.size > 0;
-    generate.title = !M.paused ? text('Mettre en pause pour calculer les vignettes','Pause to render thumbnails') : generate.getAttribute('aria-label');
+    generate.title = !M.paused ? text('Mettre en pause pour calculer les vignettes','Pause to render thumbnails')
+      : requestedCode.size ? text('Préparation des vignettes visibles…','Preparing visible thumbnails…')
+      : text('Compléter ou réessayer les vignettes visibles', 'Complete or retry visible thumbnails');
     generate.setAttribute('aria-busy', String(requestedCode.size > 0));
   }
   function schedule() {
     if (M.paused && !busy && !timer && enabled && [...cells.values()].some(possible)) timer = setTimeout(pump, 130);
   }
+  function clearCodeRetry() {
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer); retryTimer = null; autoBlocked = false;
+      for (const c of retryCells) { failures.delete(c.key); autoAttempts.delete(c.key); }
+    }
+    retryCells = [];
+  }
   function end() {
+    const nextViewport = [...cells.keys()].join(';');
+    if (nextViewport !== viewport) {
+      viewport = nextViewport; autoAttempts.clear(); autoBlocked = false;
+      clearCodeRetry(); retryCount = 0;
+      // Debounce pan/zoom. Cancel a capture that no longer belongs to the view.
+      clearTimeout(timer); timer = null;
+      if (activeBatch?.some(c => !cells.has(c.key))) controller?.abort();
+    }
     for (const key of requestedCode) if (!cells.has(key)) requestedCode.delete(key);
+    requestAutomatic();
     controls(); schedule();
   }
   generate.onclick = () => {
     if (generate.disabled) return;
+    clearCodeRetry(); retryCount = 0; autoBlocked = false;
     for (const c of cells.values()) {
       if (c.source === 'code' && !bitmapCache.has(c.key)) {
         failures.delete(c.key); requestedCode.add(c.key);
@@ -125,7 +174,7 @@ const filmstrip = (() => {
     if (source === 'code') params.set('version', STATUS.code.version);
     const route = source === 'code' ? '/api/timeline-code-thumbnails?' : '/api/timeline-thumbnails?';
     const ticket = epoch, signal = (controller = new AbortController()).signal;
-    busy = true;
+    busy = true; activeBatch = batch;
     try {
       const r = await fetch(route + params, {signal, cache:'no-store'});
       if (!r.ok) throw Object.assign(new Error(String(r.status)), {status:r.status});
@@ -143,31 +192,44 @@ const filmstrip = (() => {
           }
         }
       } finally { sheet.close(); }
+      if (source === 'code') retryCount = 0;
     } catch (error) {
       if (ticket === epoch && !signal.aborted) {
         if (source !== 'video' && source !== 'code' && [404,415,422].includes(error.status)) unavailable.add(source);
         else {
           for (const c of batch) failures.set(c.key, true);
           if (source === 'code') {
-            requestedCode.clear();
-            setSave(text('Vignettes du code indisponibles','Code thumbnails unavailable') + ' · ' + error.message, 'err');
+            requestedCode.clear(); autoBlocked = true;
+            if ([429,503].includes(error.status) && retryCount < 4) {
+              // The cancelled renderer may still be releasing its slot. Wait
+              // rather than leaving the final panned view permanently empty.
+              const retryView = viewport, delay = [1000,2000,4000,6000][retryCount++];
+              retryCells = batch;
+              retryTimer = setTimeout(() => {
+                if (ticket === epoch && retryView === viewport) { clearCodeRetry(); scheduleDraw(); }
+              }, delay);
+            } else setSave(text('Vignettes du code indisponibles','Code thumbnails unavailable') + ' · ' + error.message, 'err');
           } else if ([429,503].includes(error.status)) {
             setTimeout(() => { if (ticket === epoch) { for (const c of batch) failures.delete(c.key); scheduleDraw(); } }, 5000);
           }
         }
       }
     } finally {
+      if (signal.aborted) for (const c of batch) autoAttempts.delete(c.key);
       if (ticket === epoch) for (const c of batch) requestedCode.delete(c.key);
-      busy = false; controller = null; scheduleDraw();
+      busy = false; controller = null; activeBatch = null; scheduleDraw();
     }
   }
   function suspend() {
-    clearTimeout(timer); timer = null; requestedCode.clear(); controller?.abort();
+    clearTimeout(timer); timer = null;
+    clearCodeRetry();
+    for (const key of requestedCode) autoAttempts.delete(key);
+    requestedCode.clear(); controller?.abort();
     controls();
   }
   window.addEventListener('pagehide', suspend);
   document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); else scheduleDraw(); });
-  M.on('pause', () => { controls(); schedule(); });
+  M.on('pause', () => { controls(); scheduleDraw(); });
   M.on('play', suspend);
   return {get enabled(){return enabled;}, assetTag, isAsset, begin, paint, end};
 })();

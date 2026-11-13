@@ -65,29 +65,29 @@
 #codeRangeTools button[hidden] { display:none; }
 #viewbar { position:relative; z-index:2; container-type:inline-size; }
 #monitorStatus { display:flex; align-items:center; gap:7px; flex:1 1 0; min-width:24px; }
-#readinessAnnouncement { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+#readinessAnnouncement,#episodePlanAnnouncement { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 #monitorStatus #codeStatus { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #viewbar #open3d { min-width:26px; max-width:20cqw; }
 #open3d span,#viewbar #proxy { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #viewbar #proxy { max-width:14cqw; }
-#previewReadiness { flex:0 1 auto; min-width:22px; max-width:100%; color:#f4d294; }
-#previewReadiness[hidden],#previewReadiness button[hidden] { display:none; }
-#previewReadiness summary { list-style:none; display:flex; align-items:center; gap:5px; height:23px; box-sizing:border-box; padding:0 6px; border:1px solid #675638; border-radius:4px; background:#302b22; font:600 11px/1.2 var(--font); cursor:pointer; }
-#previewReadiness summary::-webkit-details-marker { display:none; }
-#previewReadiness summary svg { flex:none; }
-#previewReadiness summary span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-#previewReadiness summary:hover,#previewReadiness[open] summary { background:#423724; }
-#previewReadiness summary:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
-#previewReadiness .readiness-detail { position:absolute; top:calc(100% + 3px); width:min(270px, calc(100% - 16px)); box-sizing:border-box; padding:10px 12px; border:1px solid #675638; border-radius:6px; background:#212329; box-shadow:0 5px 16px #0006; }
-#previewReadiness p { margin:0; color:var(--s12); font-size:12px; line-height:1.45; overflow-wrap:anywhere; }
+:is(#previewReadiness,#episodePlanNotice) { flex:0 1 auto; min-width:22px; max-width:100%; color:#f4d294; }
+:is(#previewReadiness,#episodePlanNotice)[hidden],#previewReadiness button[hidden] { display:none; }
+:is(#previewReadiness,#episodePlanNotice) summary { list-style:none; display:flex; align-items:center; gap:5px; height:23px; box-sizing:border-box; padding:0 6px; border:1px solid #675638; border-radius:4px; background:#302b22; font:600 11px/1.2 var(--font); cursor:pointer; }
+:is(#previewReadiness,#episodePlanNotice) summary::-webkit-details-marker { display:none; }
+:is(#previewReadiness,#episodePlanNotice) summary svg { flex:none; }
+:is(#previewReadiness,#episodePlanNotice) summary span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+:is(#previewReadiness,#episodePlanNotice) summary:hover,:is(#previewReadiness,#episodePlanNotice)[open] summary { background:#423724; }
+:is(#previewReadiness,#episodePlanNotice) summary:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+:is(#previewReadiness,#episodePlanNotice) .readiness-detail { position:absolute; top:calc(100% + 3px); width:min(270px, calc(100% - 16px)); box-sizing:border-box; padding:10px 12px; border:1px solid #675638; border-radius:6px; background:#212329; box-shadow:0 5px 16px #0006; }
+:is(#previewReadiness,#episodePlanNotice) p { margin:0; color:var(--s12); font-size:12px; line-height:1.45; overflow-wrap:anywhere; }
 #previewReadiness button { margin-top:8px; min-height:24px; height:auto; font-size:11px; }
 @container (max-width:650px) {
   #playbackResolutionControl > span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-  #previewReadiness summary { padding:0 4px; }
-  #previewReadiness summary span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  :is(#previewReadiness,#episodePlanNotice) summary { padding:0 4px; }
+  :is(#previewReadiness,#episodePlanNotice) summary span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 }
 @container (max-width:520px) {
-  #previewReadiness .readiness-detail { left:8px; }
+  :is(#previewReadiness,#episodePlanNotice) .readiness-detail { left:8px; }
   #viewbar .dock-heading { display:none; }
 }
 @container (max-width:420px) {

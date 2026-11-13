@@ -116,6 +116,9 @@ test('Le serveur rend les images du vrai code portrait sans MP4, dans l’ordre 
   fs.writeFileSync(path.join(src,'index.tsx'),`
     import React from 'react'; import {registerRoot, Composition} from 'remotion'; import {compositions} from './coulisses';
     registerRoot(()=> <Composition {...compositions[0]}/>);`);
+  // Production episodes carry large geometry datasets. Certified playback can
+  // reject these, but a decorative strip must still render its requested frames.
+  fs.writeFileSync(path.join(engine,'public','large-scene.json'), ' '.repeat(17*1024*1024));
   const spec=path.join(tmp,'film','film.coulisses');
   fs.writeFileSync(spec,JSON.stringify({coulisses:1,titre:'Code seul',chaine:'Test',remotion:{projet:'../engine',entree:'src/index.tsx',module:'src/coulisses.tsx',composition:'CodeThumbs',props:{}},revue:'revue',export:{dossier:'07-renders'}}));
   fs.writeFileSync(path.join(review,'projet.json'),JSON.stringify({studio:'Coulisses',kind:'remotion',root:'..',coulisses:'../film.coulisses',title:'Code seul'}));
