@@ -65,6 +65,14 @@ test('La couverture priorise chaque clip et remplit ses cases sans franchir une 
   assert.ok(s.drawn.length>s.calls[0].frames.length,'Une image remplit plusieurs cases du même clip.');
 });
 
+test('Une vue de plus de 32 clips reçoit une couverture par clip sans calculer toutes les cases',async t=>{
+  const s=setup(t);s.context.ranges=Array.from({length:40},(_,i)=>({start:i*2.5,end:(i+1)*2.5}));s.render();
+  await until(()=>s.calls.reduce((n,c)=>n+c.frames.length,0)===40);await delay(250);
+  const frames=s.calls.flatMap(c=>c.frames);
+  assert.equal(frames.length,40);assert.equal(s.calls.length,5);
+  for(let i=0;i<40;i++)assert.ok(frames.some(f=>f>=i*75&&f<(i+1)*75));
+});
+
 test('La lecture annule la capture en cours et la pause reprend sans clic',async t=>{
   const s=setup(t,(call,n)=>n===1?new Promise((_,reject)=>call.signal.addEventListener('abort',()=>reject(call.signal.reason),{once:true})):undefined);
   s.render();await until(()=>s.calls.length===1);
@@ -79,6 +87,8 @@ test('La lecture annule la capture en cours et la pause reprend sans clic',async
 test('Une nouvelle génération abandonne les anciennes images et change la version demandée',async t=>{
   const s=setup(t,(call,n)=>n===1?new Promise((_,reject)=>call.signal.addEventListener('abort',()=>reject(call.signal.reason),{once:true})):undefined);
   s.render();await until(()=>s.calls.length===1);
+  s.context.STATUS.code.status='building';s.render();
+  assert.equal(s.calls[0].signal.aborted,true);
   s.context.STATUS.code={version:2,hash:'two',status:'ready'};s.render();
   assert.equal(s.calls[0].signal.aborted,true);
   await until(()=>s.calls.length>1);

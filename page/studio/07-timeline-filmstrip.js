@@ -40,6 +40,7 @@ const filmstrip = (() => {
       clearCodeRetry(); retryCount = 0;
       autoAttempts.clear(); viewport = ''; autoBlocked = false;
     }
+    if (STATUS.code?.status !== 'ready' && activeBatch?.some(c => c.source === 'code')) suspend();
     codeTiles = [...bitmapCache].filter(([key]) => key.startsWith('code|')).map(([key,tile]) => ({tile,frame:Number(key.slice(5))}));
     cells.clear();
   }
@@ -168,6 +169,7 @@ const filmstrip = (() => {
     const missing = [...cells.values()].filter(possible);
     const source = missing.find(c => c.source === 'code')?.source || missing[0]?.source;
     if (!source) return;
+    if (source === 'code' && STATUS.code?.status !== 'ready') { requestedCode.clear(); return; }
     const batch = missing.filter(c => c.source === source).slice(0, tilesPerBatch);
     const params = source === 'video' || source === 'code' ? new URLSearchParams() : new URLSearchParams(source);
     params.set('frames', batch.map(c => c.frame).join(',')); params.set('fps', FPS);
