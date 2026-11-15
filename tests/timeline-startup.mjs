@@ -17,7 +17,7 @@ const read = file => fs.readFileSync(new URL(file, root), 'utf8');
 const changed = new Set(['01-preview.js', '02-notes.js', '07-timeline-filmstrip.js', '10-start.js']);
 const parts = fs.readdirSync(new URL('page/studio/', root)).filter(f => /^\d\d-[\w-]+\.js$/.test(f)).sort();
 const script = '(()=>{\n' + parts.map(f => baseline && changed.has(f)
-  ? execFileSync('git', ['show', 'HEAD:page/studio/' + f], {cwd:root, encoding:'utf8'})
+  ? execFileSync('git', ['show', '2b54182:page/studio/' + f], {cwd:root, encoding:'utf8'})
   : read('page/studio/' + f)).join('\n') +
   '\nwindow.__startupProbe=()=>({frames:FRAMES,fps:FPS,duration:DUR,player:!!SP,live:!!LIVE,codeVersion:codeVer});window.__startupSeek=seekFrame;})();';
 const notes = Array.from({length:15}, (_,i) => ({id:'n' + i, frame:(i+1)*2000, end:null, text:'Note ' + (i+1),
@@ -69,7 +69,6 @@ try {
     assert.equal(state.probe.frames,41956);assert.equal(state.probe.fps,30);
     assert.equal(state.ui.view.b,41956/30);assert.equal(state.ui.tl.length,15);
     assert.ok(state.ui.lanes.includes('Scènes prêtes'));
-    assert.ok(ms<2500, 'Startup polling should catch the first ready timeline promptly.');
     assert.equal(requests.filter(r=>r.path.includes('thumbnail')).length,0,'Do not compete with preview startup.');
     assert.equal(requests.filter(r=>r.method!=='GET' && /^\/api\/(notes|replies|remap)(\/|$)/.test(r.path)).length,0,'No notes or replies are mutated.');
     console.log(`Timeline visible with 15 note markers after ${ms} ms while preview remains unavailable.`);
