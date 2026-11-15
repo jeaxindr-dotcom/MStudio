@@ -18,6 +18,8 @@ import { waitForRenderIdle } from '../lib/render-activity.mjs';
 
 const STUDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SANDBOX = path.resolve(process.env.STUDIO_SANDBOX ?? path.join(STUDIO, 'sandbox', '07_Episodes'));
+const E03_VIDEO = path.join(SANDBOX, 'E03 - The Secret Garden', 'E03 - The Secret Garden.mp4');
+const HAS_E03 = fs.existsSync(E03_VIDEO);
 const SCR = path.join(STUDIO, '.cache', 'i18n-test');
 fs.rmSync(SCR, { recursive: true, force: true }); fs.mkdirSync(SCR, { recursive: true });
 process.env.COULISSES_LANG = 'en';
@@ -213,7 +215,9 @@ try {
     }
   };
   await p.goto(`http://127.0.0.1:${HUB_PORT}/`);
-  await until(`document.querySelectorAll('.card[data-id]').length >= 2`, 20000); await sleep(800);
+  // The imported fixture is created by this test; E03 is an optional external
+  // resource. An unrelated card count must not block the self-contained checks.
+  await until(`document.querySelector('.card[data-id="${imp.id}"]')`, 20000); await sleep(800);
   await checkHome('en');
   check((await ev(`return document.documentElement.lang`)) === 'en' && (await ev(`return [...document.querySelectorAll('#menubar > button')].map((b) => b.textContent).join('|')`)) === 'File|Edit|Tools|Help', 'the page is lang="en", the menu bar « File · Edit · Tools · Help »');
   await scan('home screen');
@@ -291,6 +295,7 @@ try {
   await p.shot(path.join(shots, 'i18n-2-studio-run.png'));
 
   // the sandbox E03 (a Brambleshire episode: the render card, the staging panel, the episode's tracks), read only
+  if (HAS_E03) {
   st = spawn(process.execPath, [path.join(STUDIO, 'studio-server.mjs'), 'E03', '--no-open', ...episodeFlags, '--port', String(ST_PORT)], { cwd: STUDIO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stOut = ''; st.stdout.on('data', (d) => { stOut += d; }); st.stderr.on('data', (d) => { stOut += d; });
   for (let i = 0; i < 120 && !/Open: http/.test(stOut); i++) await sleep(250);
@@ -307,6 +312,9 @@ try {
   await menus('studio (episode E03)');
   await p.shot(path.join(shots, 'i18n-3-studio-episode.png'));
   kill(st); st = null;
+  } else {
+    console.log(`  (sauté : scénario du studio E03 ; vidéo du bac à sable absente : ${E03_VIDEO}. STUDIO_SANDBOX permet de fournir cette fixture.)`);
+  }
 
   // ---------- 6. the language switch of the home screen, kept in the settings file ----------
   console.log('the language switch');
