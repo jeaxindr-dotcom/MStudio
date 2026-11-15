@@ -67,7 +67,7 @@ import { getShortcuts, setShortcuts } from './lib/shortcuts.mjs';
 import { library, librarySummary, listMedias, findMedia, peekMedia, mediaFile, miniature, importBytes, updateMedia, removeMedia, recordUse, slug } from './lib/medias.mjs';
 import { stageShot, b64url } from './lib/stage-shot.mjs';
 import { dictation } from './lib/dictate.mjs';
-import { planStore, mapFrames } from './lib/plans.mjs';
+import { planStore, mapFrames, assessFrameMapping, NOTE_MAPPING_VERSION } from './lib/plans.mjs';
 import { chatAvailable, imageModel, readChat, sendChat, stopJob, sortInbox, autoSort, jobOf, busy, newChat } from './lib/image-chat.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -266,7 +266,7 @@ function videoPlan() {   // the plan of the video shown (null: not known — its
   videoPlanMemo = { key, sig };
   return sig;
 }
-const plansNow = () => ({ code: CODE ? codePlan() : null, video: videoPlan() });
+const plansNow = () => ({ code: CODE ? codePlan() : null, video: videoPlan(), mappingVersion: NOTE_MAPPING_VERSION });
 // size and frame rate of a project's video (a Short is 1080×1920), measured once per file — by ffprobe in the background
 // (code review, 08/10/2026: never a synchronous ffprobe inside a request: it froze every request until it answered).
 // The first one is measured before the server listens; a new export is measured on the next request, the previous size
@@ -399,6 +399,17 @@ function writeNotes(data, before) {
   // Un échec de cette écriture refuse la sauvegarde, sans annoncer un envoi réussi.
   if (before) syncUserReplies(P, before);
   syncUserReplies(P, data);
+  // A new matching algorithm may repair an older automatic position. Keep the
+  // complete review before that first correction, independently of the rolling backup.
+  const previous = new Map((before?.notes ?? []).map(n => [n.id, n]));
+  if (data.notes.some(n => {
+    const p = previous.get(n.id);
+    return p && (p.followVersion ?? 0) < NOTE_MAPPING_VERSION && n.followVersion === NOTE_MAPPING_VERSION &&
+      (p.frame !== n.frame || (p.end ?? null) !== (n.end ?? null));
+  })) {
+    const dir = path.join(REVUE, 'sauvegardes'); fs.mkdirSync(dir, { recursive: true });
+    fs.copyFileSync(NOTES, path.join(dir, `notes-${stampNow()}-${crypto.randomUUID().slice(0, 8)}-avant-recalage-v${NOTE_MAPPING_VERSION}.json`), fs.constants.COPYFILE_EXCL);
+  }
   if (fs.existsSync(NOTES) && !before) {   // unreadable: kept as it is before anything replaces it
     try { fs.copyFileSync(NOTES, NOTES.replace(/\.json$/, `.illisible-${stampNow()}.json`)); } catch { /* */ }
   }
@@ -823,13 +834,15 @@ const server = http.createServer(async (req, res) => {
     if (pn === '/api/remap' && req.method === 'POST') {
       const b = JSON.parse((await body(req)).toString('utf8') || '{}'), to = PLANS.load(b.to);
       if (!to) return json(res, { ok: false, why: 'plan' });
-      const out = [], unknown = [];
+      const out = [], unknown = [], refused = [];
       for (const n of Array.isArray(b.notes) ? b.notes : []) {
         const from = n.plan === b.to ? to : PLANS.load(n.plan);
-        if (!from || !Number.isFinite(+n.frame)) { unknown.push(n.id); continue; }
+        if (!from || !Number.isFinite(+n.frame) || (n.end != null && !Number.isFinite(+n.end))) { unknown.push(n.id); continue; }
+        const assessment = assessFrameMapping(from, to, +n.frame, n.end == null ? null : +n.end);
+        if (!assessment.safe) { refused.push({ id: n.id, reason: assessment.reason }); continue; }
         out.push({ id: n.id, ...mapFrames(from, to, +n.frame, n.end === null || n.end === undefined ? null : +n.end) });
       }
-      return json(res, { ok: true, to: b.to, notes: out, unknown });
+      return json(res, { ok: true, to: b.to, notes: out, unknown, refused, mappingVersion: NOTE_MAPPING_VERSION });
     }
     // the dictation: the recording of the page (webm), its words (lib/dictate.mjs); /warm: the engine ready while one speaks
     if (pn === '/api/dictate/warm' && req.method === 'POST') return json(res, { ok: await DICT.warm().catch(() => false) });

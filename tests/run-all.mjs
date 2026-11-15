@@ -29,7 +29,7 @@ const SUITES = [
   ['isolation-runtime-test', 'self'],
   ['desktop-open', 'self'], ['desktop-hub', 'self'], ['desktop-hub-server', 'self'], ['desktop-navigation', 'self'], ['mstudio-launcher-arguments', 'self'], ['native-projects', 'self'], ['frame-cache', 'self'],
   ['app-updates','self'], ['app-update-api','self'], ['app-update-install','self'], ['app-update-ui','self'],
-  ['drawing-popover', 'self'],
+  ['drawing-popover', 'self'], ['plans-mapping.test', 'self'], ['note-follow-guard', 'self'],
   ['playback-resolution-browser', 'self'],
   ['workspace-studio-v2', 'self'], ['composition-browser-v2', 'self'], ['timeline-studio-v2', 'self'],
   ['navigation-studio-v2', 'self'], ['review-integrity-v2', 'self'], ['preview-launch-v2', 'self'],

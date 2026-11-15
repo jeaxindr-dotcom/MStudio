@@ -36,7 +36,8 @@
   // the texts added with the colours and the batch filter, for a studio started before them (its dictionary is the one
   // it read when it started; the page itself is read again at each load): the key itself never shows
   const NEWT = {
-    fr: { 'st.reply.unseen': 'Non vue par l’agent', 'st.reply.seen': 'Vue par l’agent', 'st.reply.seenTitle': 'L’agent a confirmé avoir reçu cette réponse le {at}. Cela ne signifie pas que la correction est faite.',
+    fr: { 'st.follow.uncertain': 'Recalage incertain : la position des notes a été conservée.',
+      'st.reply.unseen': 'Non vue par l’agent', 'st.reply.seen': 'Vue par l’agent', 'st.reply.seenTitle': 'L’agent a confirmé avoir reçu cette réponse le {at}. Cela ne signifie pas que la correction est faite.',
       'st.reply.unseenTitle': 'Cette réponse attend sa remise à un agent connecté.', 'st.reply.saved': 'Réponse enregistrée', 'st.reply.waiting': 'Réponse enregistrée, en attente de remise à l’agent.', 'st.reply.delivered': 'Réponse remise à l’agent.',
       'st.reply.offline': 'Aucun agent ne surveille Coulisses : ta réponse attendra sa reconnexion.', 'st.reply.unknown': 'La surveillance de l’agent n’a pas pu être vérifiée : ta réponse est enregistrée et attendra sa reconnexion si nécessaire.',
       'st.reply.connect': 'Copie cette ligne dans la session de l’agent pour le reconnecter. Les réponses non vues lui seront remises en premier.', 'st.reply.failed': 'La réponse n’est pas encore enregistrée. Coulisses réessaie ; garde cette page ouverte.',
@@ -53,7 +54,8 @@
       'st.q.no1080': "Le script d'export de ce projet ne fait pas de 1080p", 'st.ex.confirmGpu': "\n\nEncodage : GPU ({name}).", 'st.ex.confirmCpu': "\n\nEncodage : processeur — la case « Encoder avec le GPU » est décochée (plus lent).", 
       'st.q.title': "Qualité", 'st.q.no4k': "Le script d'export de ce projet ne fait pas la 4K", 'st.rc.liveCode': "Pas encore de vidéo : tu relis le code en direct ({comp}, {w}×{h} à {fps} i/s).", 'st.rc.goQ': "Lancer le rendu en {q}", 'st.launch.q': "Qualité : {q}.", 'st.top.goQTitle': "Lancer le rendu en {q} avec le script d'export du projet (suivi dans « Envois »)",
       'st.steps.prep': "Préparation", 'st.steps.prepWhat': "le projet empaqueté, les scènes 3D refaites en 4K s’il le faut", 'st.steps.finishX': "assemblage des morceaux, son, volume, copies", 'st.steps.reviewX': "Relecture", 'st.steps.reviewXWhat': "Coulisses charge la nouvelle vidéo : tu la relis, et tu compares les notes corrigées", 'st.steps.goesOn': "Tu peux fermer Coulisses : le rendu continue." },
-    en: { 'st.reply.unseen': 'Not seen by the agent', 'st.reply.seen': 'Seen by the agent', 'st.reply.seenTitle': 'The agent confirmed receiving this reply on {at}. This does not mean the fix is done.',
+    en: { 'st.follow.uncertain': 'Uncertain timing match: note positions have been kept.',
+      'st.reply.unseen': 'Not seen by the agent', 'st.reply.seen': 'Seen by the agent', 'st.reply.seenTitle': 'The agent confirmed receiving this reply on {at}. This does not mean the fix is done.',
       'st.reply.unseenTitle': 'This reply is waiting to be delivered to a connected agent.', 'st.reply.saved': 'Reply saved', 'st.reply.waiting': 'Reply saved, waiting to be delivered to the agent.', 'st.reply.delivered': 'Reply delivered to the agent.',
       'st.reply.offline': 'No agent is watching Coulisses: your reply will wait until it reconnects.', 'st.reply.unknown': 'Agent monitoring could not be checked: your reply is saved and will wait for reconnection if needed.',
       'st.reply.connect': 'Copy this line into the agent’s session to reconnect it. Unseen replies will be delivered first.', 'st.reply.failed': 'Your reply has not been saved yet. Coulisses is retrying; keep this page open.',
@@ -309,7 +311,19 @@
             if (!messages.has(key)) messages.set(key, m);
           }
         }
-        out.push({ ...newest, thread: [...messages.values()].sort((x, y) => (Date.parse(x.at) || 0) - (Date.parse(y.at) || 0)) });
+        const merged = { ...newest, thread: [...messages.values()].sort((x, y) => (Date.parse(x.at) || 0) - (Date.parse(y.at) || 0)) };
+        // A corrected automatic position is independent from edits to the words.
+        // An older tab may have newer text, but must not restore an obsolete match.
+        // A manual move changes `at` and therefore remains governed by the user's edit.
+        if (a.at?.plan && JSON.stringify(a.at) === JSON.stringify(b.at)) {
+          const position = (a.followVersion ?? 0) > (b.followVersion ?? 0) ? a : b;
+          if ((position.followVersion ?? 0) > (newest.followVersion ?? 0)) {
+            for (const key of ['frame', 'end', 'plan', 'source', 'render', 'context', 'before', 'followVersion']) {
+              if (Object.hasOwn(position, key)) merged[key] = position[key]; else delete merged[key];
+            }
+          }
+        }
+        out.push(merged);
       } else if (!NOTES_KNOWN.has(id) || t(a) > saved) out.push(a);
     }
     for (const [id, b] of B) if (!A.has(id) && (!NOTES_KNOWN.has(id) || t(b) > saved)) out.push(b);
@@ -404,6 +418,7 @@
       if (back) sel = back.id; else if (sel && !byId(sel)) sel = null;
       if (loopId && !byId(loopId)) loopId = null;
       persist(); renderAll(); syncStage();
+      followPlans();   // An undone manual move keeps its own original anchor on this version too.
     }
     setSave(T(dir === 'undo' ? 'st.undo.done' : 'st.redo.done', { what: step.label, key: window.Shortcuts?.show(dir === 'undo' ? 'redo' : 'undo') ?? '' }), 'ok');
   }
@@ -639,42 +654,74 @@
   // spoken line, the same shot, the same second of a source. Not a step of Ctrl+Z. A version whose plan is not known (a
   // video made outside Coulisses, without a plan): its notes stay on their frames, as before.
   const viewPlan = () => (mode === 'code' ? STATUS.plans?.code : STATUS.plans?.video) ?? null;
+  const followVersion = () => STATUS.plans?.mappingVersion ?? META.plans?.mappingVersion ?? 1;
   function anchorNote(n) {
     const p = viewPlan();
-    if (p) { n.plan = p; n.at = { frame: n.frame, end: n.end ?? null, plan: p }; } else { delete n.at; delete n.plan; }
+    if (p) { n.plan = p; n.at = { frame: n.frame, end: n.end ?? null, plan: p }; n.followVersion = followVersion(); }
+    else { delete n.at; delete n.plan; delete n.followVersion; }
   }
   let following = false;
-  const followTried = new Set();   // (a note whose plan the studio does not know: not asked again)
+  const followTried = new Set();   // Retried when its anchor, target plan or matching algorithm changes.
+  const followKey = (n, to, version) => JSON.stringify([n.id, n.at, to, version]);
+  const followPosition = (n) => JSON.stringify([n.at, n.frame, n.end ?? null, n.plan, n.source, n.render, n.followVersion]);
+  function rebaseFollowHistory(applied) {
+    // Undoing words must not undo an automatic repair. Snapshots belonging to a
+    // different manual anchor stay intact: that placement is still undoable.
+    for (const entry of [...HIST.back, ...HIST.fwd]) {
+      if (entry.type !== 'notes') continue;
+      const snapshot = JSON.parse(entry.state);
+      for (const old of snapshot) {
+        const n = applied.get(old.id);
+        if (!n || JSON.stringify(old.at) !== JSON.stringify(n.at)) continue;
+        for (const key of ['frame', 'end', 'plan', 'source', 'render', 'context', 'before', 'followVersion']) {
+          if (Object.hasOwn(n, key)) old[key] = n[key]; else delete old[key];
+        }
+      }
+      entry.state = JSON.stringify(snapshot);
+    }
+  }
   async function followPlans() {
-    const to = viewPlan();
+    const to = viewPlan(), version = followVersion(), source = mode;
     if (!to || !NOTES_OK || following || !repliesTxt) return;   // (the agent's answers read first: its recalage comes first)
     // a new video there and this page about to load it (06-render.js onHeld), or the video being replaced: not now — the
     // page of the new video does it, with that video
     const vid = STATUS.video ?? null;
     if (STATUS.held || (vid && META.render && (vid.size !== META.render.size || vid.mtime !== META.render.mtime))) return;
     const remapped = (n) => { const m = REPLIES.notes?.[n.id]?.remap; return !!(m?.render && META.render && m.render.size === META.render.size && n.render?.size !== META.render.size); };
-    const todo = notes.filter((n) => n.at?.plan && n.plan !== to && !remapped(n) && !followTried.has(`${n.id}>${n.at.plan}>${to}`));
+    // Revisit old automatic positions once after a matcher fix, even if the plan
+    // itself has not changed. A user's own anchor on this plan is never migrated.
+    const todo = notes.filter((n) => n.at?.plan &&
+      (n.plan !== to || (version >= 2 && n.at.plan !== to && (n.followVersion ?? 0) < version)) &&
+      !remapped(n) && !followTried.has(followKey(n, to, version)));
     if (!todo.length) return;
+    const requested = new Map(todo.map(n => [n.id, { position: followPosition(n), key: followKey(n, to, version) }]));
+    const unchanged = (n) => n && requested.get(n.id)?.position === followPosition(n) && !remapped(n);
     following = true;
     try {
       const r = await postJson('/api/remap', { to, notes: todo.map((n) => ({ id: n.id, frame: n.at.frame, end: n.at.end ?? null, plan: n.at.plan })) });
-      if (!r?.ok || viewPlan() !== to) return;
-      // (the version it was placed on not known here any more: it does not follow — the recalage of before, after a render,
-      // remap-notes.mjs, takes it again)
-      for (const id of r.unknown ?? []) { const n = byId(id); if (n?.at) { followTried.add(`${id}>${n.at.plan}>${to}`); delete n.at; delete n.plan; } }
-      if (r.unknown?.length) applyRemaps();
-      let moved = 0;
+      if (!r?.ok || viewPlan() !== to || mode !== source || followVersion() !== version || (r.mappingVersion ?? 1) !== version) return;
+      // Missing or ambiguous matches cannot erase the original anchor. Keeping it
+      // allows recovery when a plan is restored or matching improves again.
+      let refused = 0;
+      for (const id of [...(r.unknown ?? []), ...(r.refused ?? []).map(m => m.id)]) {
+        const n = byId(id); if (unchanged(n)) { followTried.add(requested.get(id).key); refused++; }
+      }
+      let moved = 0; const applied = new Map();
       for (const m of r.notes ?? []) {
-        const n = byId(m.id); if (!n || n.plan === to || !n.at) continue;
+        const n = byId(m.id);
+        if (!unchanged(n) || !Number.isSafeInteger(m.frame) || m.frame < 0 ||
+          (m.end != null && (!Number.isSafeInteger(m.end) || m.end <= m.frame))) continue;
         if (n.frame !== m.frame || (n.end ?? null) !== (m.end ?? null)) {
           // (where it was on the version of before, shown on its card: « avant : image … »; the last move only)
           n.before = [...(n.before ?? []).filter((b) => !b.plan), { frame: n.frame, end: n.end ?? null, render: n.render ?? null, plan: n.plan ?? null }];
           n.frame = m.frame; n.end = m.end ?? null; n.context = contextAt(n.frame, n.end ?? n.frame); moved++;
         }
-        n.plan = to; n.source = mode; if (META.render) n.render = META.render;   // (its image, for the agent, taken from the version shown)
+        n.plan = to; n.source = source; n.followVersion = version; applied.set(n.id, n);
+        if (META.render) n.render = META.render;   // (its image, for the agent, taken from the version shown)
       }
-      persist(); HIST.last = JSON.stringify(notes); renderAll();
-      if (moved) setTimeout(() => setSave(TN('st.follow.moved', { n: moved }), 'ok'), 900);   // (once saved: « Enregistré » would cover it)
+      if (applied.size) { rebaseFollowHistory(applied); persist(); HIST.last = JSON.stringify(notes); renderAll(); }
+      if (refused) setTimeout(() => setSave(TN('st.follow.uncertain'), 'err'), 900);
+      else if (moved) setTimeout(() => setSave(TN('st.follow.moved', { n: moved }), 'ok'), 900);   // (once saved: « Enregistré » would cover it)
     } catch { /* again at the next status */ } finally { following = false; }
     if (viewPlan() !== to) followPlans();   // (the version changed again meanwhile)
   }
