@@ -17,7 +17,7 @@ function setup(t, respond) {
     document:{hidden:false,createElement:node,addEventListener:(key,fn)=>events[key]=fn},
     window:{addEventListener:(key,fn)=>events[key]=fn},$(){return{prepend:(...items)=>buttons.push(...items)};},
     META:{notesFile:'/isolated/revue/notes.json',engine:'remotion'},STATUS:{code:{version:1,hash:'one',status:'ready'},timeline:{version:1}},
-    FPS:30,FRAMES:3000,mode:'code',LIVE:{},view:{a:0,b:100},W:8000,FONT:'sans-serif',ranges:[{start:0,end:100}],
+    FPS:30,FRAMES:3000,mode:'code',SP:{},codeVer:1,LIVE:{},view:{a:0,b:100},W:8000,FONT:'sans-serif',ranges:[{start:0,end:100}],
     M:{paused:true,on:(key,fn)=>mediaEvents[key]=fn},AbortController,URLSearchParams,setTimeout,clearTimeout,
     rr(){},setSave:message=>errors.push(message),resize:()=>render(),
     tx:time=>(time-context.view.a)/(context.view.b-context.view.a)*context.W,
@@ -37,6 +37,12 @@ function setup(t, respond) {
   t.after(()=>{disposed=true;events.pagehide();});
   return {context,calls,errors,drawn,buttons,mediaEvents,events,render,get maxActive(){return maxActive;}};
 }
+
+test('Les captures attendent la première image du lecteur, sans bloquer les pistes',async t=>{
+  const s=setup(t);s.context.SP=null;s.render();await delay(200);
+  assert.equal(s.calls.length,0);assert.equal(s.buttons[1].disabled,true);
+  s.context.SP={};s.render();await until(()=>s.calls.length>0);
+});
 
 test('Les scènes sans média lancent une préparation automatique bornée et progressive',async t=>{
   const s=setup(t);s.render();
@@ -91,6 +97,8 @@ test('Une nouvelle génération abandonne les anciennes images et change la vers
   assert.equal(s.calls[0].signal.aborted,true);
   s.context.STATUS.code={version:2,hash:'two',status:'ready'};s.render();
   assert.equal(s.calls[0].signal.aborted,true);
+  await delay(200);assert.equal(s.calls.length,1,'La nouvelle génération attend son lecteur.');
+  s.context.codeVer=2;s.render();
   await until(()=>s.calls.length>1);
   assert.equal(s.calls[1].version,'2');assert.equal(s.errors.length,0);
 });

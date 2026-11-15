@@ -98,10 +98,13 @@ const filmstrip = (() => {
     g.restore();
   }
   function possible(c) {
-    return !bitmapCache.has(c.key) && !failures.has(c.key) && (c.source !== 'code' || requestedCode.has(c.key));
+    return !bitmapCache.has(c.key) && !failures.has(c.key) && (c.source !== 'code' || (codeReady() && requestedCode.has(c.key)));
   }
+  // Showing the tracks early must not start competing screenshot renders while
+  // the main Player is still decoding its first frame.
+  const codeReady = () => !!SP && codeVer === STATUS.code?.version && STATUS.code?.status === 'ready';
   function requestAutomatic() {
-    if (!enabled || !M.paused || document.hidden || STATUS.code?.status !== 'ready' || autoBlocked || requestedCode.size) return;
+    if (!enabled || !M.paused || document.hidden || !codeReady() || autoBlocked || requestedCode.size) return;
     const candidates = [...cells.values()].filter(c => c.source === 'code' && !bitmapCache.has(c.key) && !failures.has(c.key) && !autoAttempts.has(c.key));
     const cachedFrames = codeTiles.map(c => c.frame);
     const uncovered = new Map();
@@ -123,7 +126,7 @@ const filmstrip = (() => {
   function controls() {
     const code = [...cells.values()].filter(c => c.source === 'code' && !bitmapCache.has(c.key));
     generate.hidden = !enabled || !code.length;
-    generate.disabled = code.length === 0 || !M.paused || STATUS.code?.status !== 'ready' || requestedCode.size > 0;
+    generate.disabled = code.length === 0 || !M.paused || !codeReady() || requestedCode.size > 0;
     generate.title = !M.paused ? text('Mettre en pause pour calculer les vignettes','Pause to render thumbnails')
       : requestedCode.size ? text('Préparation des vignettes visibles…','Preparing visible thumbnails…')
       : text('Compléter ou réessayer les vignettes visibles', 'Complete or retry visible thumbnails');

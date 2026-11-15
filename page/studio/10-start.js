@@ -5,7 +5,10 @@
   (async () => {
     for (const n of ['s9', 's11', 'acc', 'ntodo', 'nfixed', 'nok', 'head', 'lime']) C[n] = css('--' + n);
     try {
-      META = await (await fetch('/api/meta')).json();
+      const [metaResponse, nr] = await Promise.all([
+        fetch('/api/meta'), fetch('/api/notes', { cache: 'no-store' }),
+      ]);
+      META = await metaResponse.json();
       if (META.reverse) {
         $('#reverseActions').hidden = false;
         const edit = $('#reverseOpenEdit'), brief = $('#reverseAgentBrief');
@@ -43,7 +46,6 @@
       $('#render').textContent = META.render ? T('st.start.render', { name: META.render.name, what: T(PROJ ? 'st.start.exported' : 'st.start.rendered'), date: FR ? new Date(META.render.mtime).toLocaleString() : new Date(META.render.mtime).toLocaleString('en-US', { hour12: false }) }) : META.features?.code ? T('st.start.liveCode') : T('st.start.noVideo');
       updateEpisodePlanNotice();   // the live timeline may still be loading; an export snapshot is not needed in Code
       // the notes: read, or nothing is saved (a file there but unreadable answers 503: said, the page saves nothing over it)
-      const nr = await fetch('/api/notes', { cache: 'no-store' });
       const data = nr.ok ? await nr.json() : null;
       if (!data || !Array.isArray(data.notes)) {
         $('#warn').style.display = 'block';
@@ -62,9 +64,9 @@
       } if (n0) { HIST.last = JSON.stringify(notes); persist(); } }
       if (SNAP) { DUR = SNAP.frames / FPS; FRAMES = SNAP.frames; view = { a: 0, b: DUR }; }
       STATUS = { lots: [], agent: META.agent, code: META.code, timeline: {}, plans: META.plans ?? {} }; onStatus();
+      loadLive();
       await restoreDrafts();   // (what was being typed before a reload or desktop update)
       buildLanes(); setTab(tabR, false); setTab(tabL, false); fitMedia(); resize(); renderAll(); updateHud();
-      loadLive();
       setSave(notes.length ? T('st.start.loaded', { n: notes.length }) : T('st.start.ready'), 'ok');
       pollReplies();
       v.addEventListener('loadedmetadata', () => {

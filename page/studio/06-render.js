@@ -52,13 +52,16 @@
     if (!PROJ) return [{ id: '1080p', label: '1080p', send: '1080p' }, { id: '4k', label: '4K', send: '4k' }];
     const why = META.features?.export ? null : T('st.ex.unavailable', { why: META.exportWhy ?? T('st.ex.unavailableWhy') });
     const opts = META.exportOptions?.length ? META.exportOptions : [{ id: null, label: T('common.exportVideo') }];
-    // a script's variants: « 1080p » / « 4k » by their id, else by their words (宇宙ちゃん: « final » = « Exporter (4K final) »,
-    // « test » = « Rendu test (1080p) », a whole video in 1080p); a test or a replacement only when nothing else is that size
+    // Prefer a declared full export, then a normal preset. Older exporters call
+    // their 1080p preset « test »: use it if it is the only option of that size,
+    // preserving its duration warning instead of promising a full film.
     const words = (o) => `${o.id ?? ''} ${o.label ?? ''} ${o.resolution ?? ''}`, side = (o) => o.scope!=='full' && (o.scope==='excerpt' || /\b(test|essai|remplac\w*|replace)\b/i.test(words(o)));
     const is4k = (o) => /\b(4k|2160p?|uhd)\b/i.test(words(o)), is1080 = (o) => /\b1080p?\b/i.test(words(o));
-    const o4 = opts.find((o) => o.id === '4k') ?? opts.find((o) => is4k(o) && !side(o)) ?? null;
-    const o1 = opts.find((o) => o.id === '1080p' && !side(o)) ?? opts.find((o) => o !== o4 && is1080(o) && !side(o));
-    return [{ id: '1080p', label: o1?.scope ? o1.label : '1080p', send: o1?.id ?? null, why: why ?? (o1 ? null : TN('st.q.no1080')) },
+    const o4 = opts.find((o) => is4k(o) && o.scope === 'full') ?? opts.find((o) => o.id === '4k' && !side(o)) ?? opts.find((o) => is4k(o) && !side(o)) ?? null;
+    const o1 = opts.find((o) => o !== o4 && is1080(o) && o.scope === 'full')
+      ?? opts.find((o) => o.id === '1080p' && !side(o)) ?? opts.find((o) => o !== o4 && is1080(o) && !side(o))
+      ?? opts.find((o) => o !== o4 && is1080(o) && o.scope !== 'excerpt' && /^(test|essai)$/i.test(o.id));
+    return [{ id: '1080p', label: o1 && (o1.scope || side(o1)) ? o1.label : '1080p', send: o1?.id ?? null, why: why ?? (o1 ? null : TN('st.q.no1080')) },
       { id: '4k', label: o4?.scope ? o4.label : '4K', send: o4?.id ?? null, why: why ?? (o4 ? null : TN('st.q.no4k')) },
       ...opts.filter((o) => o !== o1 && o !== o4).map((o) => ({ id: `x:${o.id}`, label: o.label, send: o.id, why }))];
   }

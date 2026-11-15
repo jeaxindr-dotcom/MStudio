@@ -27,7 +27,7 @@ function fixture({staging = false, readiness = null, failure = false} = {}) {
     return p;
   }
   const c = {console, Promise, performance, Date, Set, String, JSON, Error,
-    SP: player('ancienne'), codeVer: 1, codeLoad: null, codeLoading: null, codeFailedVer: null, preparedCode: null,
+    SP: player('ancienne'), codeVer: 1, codeLoad: null, codeLoading: null, codeFailedVer: null, preparedCode: null, initialCodeSeek: null,
     STATUS: {code: {version: 2}}, META: {render: true}, codeEl: frame('ancienne'),
     document: {createElement: () => frame(`nouvelle-${++n}`)}, window: {}, staging, stSel: null, stUnsub: null,
     stMode: 'translate', freeCamOn: false, vol: 1, rate: 1, RS: {el: null, wait: true}, crash: null,
@@ -66,6 +66,21 @@ test('G5 : une erreur de préparation conserve l’ancienne', async () => {
   const done = f.c.loadCode(); f.remotes[0].resolve(); await done;
   assert.equal(f.c.SP, old); assert.equal(old.disposed, false);
   assert.equal(f.c.codeFailedVer, 2); assert.ok(f.trace.some((x) => x[0] === 'message' && x[1].includes('texture absente')));
+});
+test('Le premier aperçu suit le déplacement choisi pendant son chargement', async () => {
+  const ready = defer(), f = fixture({readiness: ready});
+  f.c.SP = null; f.c.META.render = null; f.c.hashFrame = () => 120; f.c.curFrame = () => 0;
+  // No timeline has supplied a duration: adoption must still retain the latest
+  // prepared frame instead of seeking back to the original URL hash.
+  Object.assign(f.c, {FRAMES:0,FPS:30,DUR:0,view:{a:0,b:0},CW:1920,CH:1080,
+    fitMedia(){},resize(){},renderAll(){},updateHud(){},seekFrame(frame){f.c.SP.seek(frame);}});
+  vm.runInContext(source.slice(source.indexOf('  let timelineSeededDuration'), source.indexOf('  function humanTarget')), f.c);
+  const done = f.c.loadCode(); f.c.initialCodeSeek = 180;
+  f.remotes[0].resolve(); await later();
+  f.c.initialCodeSeek = 240; ready.resolve(); await done;
+  assert.equal(f.c.SP.frame(), 240);
+  assert.deepEqual(f.trace.filter(x => x[0] === 'validé').map(x => x[2]), [180, 240]);
+  assert.equal(f.c.initialCodeSeek, null);
 });
 test('G5 : un délai de préparation conserve l’ancienne', async () => {
   const f = fixture({readiness: defer()}), old = f.c.SP;

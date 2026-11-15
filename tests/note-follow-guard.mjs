@@ -34,7 +34,7 @@ function fixture(input = [note()]) {
     },
     persist: () => saved.push(clone(c.notes)), renderAll() {},
     contextAt: frame => ({scene: c.LIVE ? `${c.LIVE.scene} at ${frame}` : ''}),
-    fetch: async () => ({json: async () => c.nextTimeline}), buildLanes() {}, draw() {}, renderInspector() {}, showShot() {},
+    fetch: async () => ({json: async () => c.nextTimeline}), adoptTimelineDuration: () => false, buildLanes() {}, draw() {}, renderInspector() {}, showShot() {},
     setTimeout: callback => callback(), setSave: (message, state) => notices.push({message, state}),
     TN: key => key});
   vm.runInContext(following, c);

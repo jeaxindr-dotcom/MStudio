@@ -580,12 +580,20 @@
     const name=lot.claude.agent?.name || (a.lastLot===lot.lot && a.agent?.name);
     return {kind:'claimed',lot:lot.lot,text:T(name?'st.ag.claimedBy':'st.ag.claimed',{name,lot:lot.lot})};
   }
-  let repliesTxt = '', statusTxt = '', statusKey = '', offline = false;
+  let repliesTxt = '', statusTxt = '', statusKey = '', offline = false, startupPollingUntil = 0;
+  function replyPollDelay() {
+    // Catch the first bundle/timeline promptly, then return to the normal pace.
+    // A failed startup cannot leave a permanent fast poll running.
+    return !META?.render && META?.features?.code && Date.now() < startupPollingUntil &&
+      (!LIVE || STATUS.timeline?.version !== liveVer || STATUS.code?.status !== 'ready') ? 400 : 3000;
+  }
   async function pollReplies() {
+    if (!startupPollingUntil) startupPollingUntil = Date.now() + 15000;
     try {
-      const response = await fetch('/api/replies', { cache: 'no-store' });
+      const [response, statusResponse] = await Promise.all([
+        fetch('/api/replies', { cache: 'no-store' }), fetch('/api/status', { cache: 'no-store' }),
+      ]);
       if (!response.ok) throw new Error('Lecture des réponses indisponible.');
-      const statusResponse = await fetch('/api/status', { cache: 'no-store' });
       if (!statusResponse.ok) throw new Error('Lecture du statut indisponible.');
       const t = await response.text(), s = await statusResponse.text();
       let changed = false;
@@ -607,7 +615,7 @@
         setSave(T('st.save.back'), 'ok');
       } catch { /* next round */ }
     }
-    setTimeout(pollReplies, 3000);
+    setTimeout(pollReplies, replyPollDelay());
   }
   function applyRemaps() {
     if (!META?.render) return;
@@ -734,15 +742,19 @@
     const r = await postJson('/api/remap', { to, notes: [{ id: '@', frame: f, end: null, plan: from }] });
     return r?.ok && r.notes?.[0] ? r.notes[0].frame : f;
   }
-  let liveVer = -1;
+  let liveVer = -1, liveLoading = null;
   async function loadLive() {
-    try {
+    if (liveLoading) return liveLoading;
+    liveLoading = (async () => { try {
       const r = await (await fetch('/api/timeline', { cache: 'no-store' })).json();
       if (r.status === 'ready' && r.data) {
         LIVE = r.data; liveVer = r.version;
+        const seeded = adoptTimelineDuration(LIVE);
         buildLanes(); draw(); renderInspector(); showShot();
+        if (seeded) { resize(); updateHud(); }
         followPlans();
       }
-    } catch { /* retried with the next status */ }
+    } catch { /* retried with the next status */ } })();
+    try { return await liveLoading; } finally { liveLoading = null; }
   }
 

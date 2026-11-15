@@ -42,6 +42,7 @@ import { validPlaybackScale } from './lib/code-playback-scale.mjs';
 import { renderCodeRange } from './lib/code-playback-render.mjs';
 import { codePlaybackSources } from './lib/code-playback-sources.mjs';
 import { timelineCodeThumbnails } from './lib/timeline-code-thumbnails.mjs';
+import { thumbnailGeneration } from './lib/thumbnail-generation.mjs';
 import {librarySources} from './lib/library-code-thumbnails.mjs';
 import { peaksOf } from './lib/peaks.mjs';
 import { CACHE, DEFAULT_PORT, INSTALLED } from './lib/place.mjs';
@@ -561,12 +562,20 @@ function resumeLotUpdates() {
 process.on('unhandledRejection', (e) => console.error(`  ${time()}  ${t('srv.ignored', { msg: e?.message ?? e })}`));
 
 const FRAME_CACHE = reviewFrameCache(CACHE, REVUE);
+const thumbnailCurrent = (version, hash) => player.state.status === 'ready' && player.state.version === version
+  && (!hash || player.state.hash === hash);
+const thumbnailGenerationNow = thumbnailGeneration({
+  fingerprint: signal => librarySources(P, {signal}),
+  current: (version, hash) => thumbnailCurrent(version, hash)
+    && (!hash || (timeline.state.status === 'ready' && timelineCodeVersion === version)),
+  build: (version, signal, fingerprint) => playbackGeneration({version}, {signal}, fingerprint),
+});
 const codeSheet = (B || G) ? timelineCodeThumbnails({
   project: P,
-  current: (version, hash) => player.state.status === 'ready' && player.state.version === version && (!hash || player.state.hash === hash),
+  current: thumbnailCurrent,
   // Filmstrip pictures are decorative previews, not certified playback ranges.
   // A large scene dataset must not prevent the timeline from showing pictures.
-  generation: (version,signal) => playbackGeneration({version}, {signal}, librarySources),
+  generation: thumbnailGenerationNow,
   fingerprint: signal => librarySources(P, {signal}),
 }) : null;
 // the frames kept (/api/frame): the newest `max`

@@ -4,12 +4,14 @@
   // ---------- media: the rendered MP4, or the live preview of the code (Remotion Player in an iframe) ----------
   const aborted = (e) => e?.name === 'AbortError' || /interrupted by a (new load request|call to pause)/i.test(String(e?.message ?? ''));
   let mode = 'video', SP = null, codeVer = -1, codeLoading = null, rate = 1, vol = 1, preparedCode = null;
+  let initialCodeSeek = null;
   let soundRepair = null;
   const bus = new EventTarget();
   const fire = (t) => bus.dispatchEvent(new Event(t));
   const M = {
     get currentTime() { return mode === 'code' && SP ? ((pendF ?? SP.frame()) + 0.5) / FPS : v.currentTime; },
     set currentTime(t) {
+      if (mode === 'code' && !SP) initialCodeSeek = Math.floor(t * FPS);
       if (mode === 'code' && SP) {
         const f = Math.floor(t * FPS), now = performance.now(), quick = now - lastStep < 250;
         if (f !== SP.frame() && !codeLoad?.repair) cancelCodePreparation();
@@ -113,7 +115,8 @@
         if (!sp) throw new Error('Aperçu fermé avant sa préparation');
         // Pendant une restauration, l'ancienne image reste déplaçable. La candidate
         // déjà chargée prépare la dernière position demandée avant l'échange.
-        const targetFrame = () => Math.max(0, Math.min(sp.durationInFrames - 1, repair ? old.frame() : target));
+        const targetFrame = () => Math.max(0, Math.min(sp.durationInFrames - 1,
+          repair ? old.frame() : !old && initialCodeSeek !== null ? initialCodeSeek : target));
         let f;
         const stagingBefore = staging, chosen = stSel?.id ?? null;
         const queued = plain(drafts().filter((n) => n.stage).map((n) => n.stage));
@@ -162,7 +165,7 @@
         // Après ce point, les déplacements déclenchés par adoptCode concernent le
         // Player adopté et ne doivent plus annuler sa transaction de préparation.
         codeLoad = null; codeLoading = null;
-        SP = sp; codeVer = ver; window.__preview = sp;
+        SP = sp; codeVer = ver; initialCodeSeek = null; window.__preview = sp;
         RS.wait = !!sp.isBuffering?.(); crash = null; codeErrEl.classList.remove('on');
         if (!META.render && sp.durationInFrames) adoptCode(sp);
         sp.setVolume(vol); sp.setRate(rate); watchPlayer(sp); rsStatus();
@@ -631,14 +634,28 @@
   }
 
   // ---------- the 3D object under a gesture, in words: « Penelope · personnage », « ladder · décor » ----------
-  // a Remotion run reviewed before any export: the composition gives the timeline's length, its fps and its pixels
+  // A first timeline can be drawn while the Player is still decoding its first
+  // image. This is display metadata only: note following still waits for the
+  // matching timeline AND Player in followContextReady().
+  let timelineSeededDuration = false;
+  function adoptTimelineDuration(data) {
+    if (FRAMES || META?.render || !META?.features?.code) return false;
+    const fps = Number(data?.fps), frames = data?.frames ?? Math.round(data?.duration * fps);
+    if (!Number.isFinite(fps) || fps <= 0 || !Number.isSafeInteger(frames) || frames <= 0) return false;
+    FPS = fps; FRAMES = frames; DUR = frames / fps; view = {a: 0, b: DUR};
+    timelineSeededDuration = true;
+    return true;
+  }
+  // The composition remains authoritative once the Player is ready.
   function adoptCode(sp) {
-    const first = !FRAMES;
+    const first = !FRAMES, seeded = timelineSeededDuration;
+    const fitted = first || (seeded && view.a === 0 && Math.abs(view.b - DUR) < 1e-6);
+    timelineSeededDuration = false;
     FRAMES = sp.durationInFrames; FPS = sp.fps || FPS; DUR = FRAMES / FPS;
     if (sp.width && sp.height) { CW = sp.width; CH = sp.height; }
-    if (first) view = { a: 0, b: DUR };
+    if (fitted) view = { a: 0, b: DUR };
+    else if (seeded) clampView();
     fitMedia(); resize(); renderAll(); updateHud();
-    if (first) { const f = hashFrame(); if (f !== null) seekFrame(f); }
   }
   function humanTarget(h) {
     if (!h) return null;
