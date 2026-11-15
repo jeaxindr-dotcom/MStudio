@@ -10,7 +10,7 @@ import { anchorsOf, assessFrameMapping, mapFrames, NOTE_MAPPING_VERSION } from '
 
 const read = file => fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const client = read('page/studio/02-notes.js');
-const following = client.slice(client.indexOf('  const viewPlan ='), client.indexOf('  let liveVer ='));
+const following = client.slice(client.indexOf('  const viewPlan ='));
 const server = read('studio-server.mjs');
 const route = server.slice(server.indexOf("    if (pn === '/api/remap'"), server.indexOf('    // the dictation:'));
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -23,7 +23,9 @@ function fixture(input = [note()]) {
   const calls = [], saved = [], notices = [];
   const c = vm.createContext({notes: clone(input), NOTES_OK: true, repliesTxt: '{}', HIST: {back: [], fwd: []}, mode: 'code',
     META: {plans: {mappingVersion: NOTE_MAPPING_VERSION}, render: null},
-    STATUS: {plans: {code: 'new', video: 'video', mappingVersion: NOTE_MAPPING_VERSION}}, REPLIES: {notes: {}},
+    STATUS: {plans: {code: 'new', video: 'video', mappingVersion: NOTE_MAPPING_VERSION},
+      code: {status: 'ready', version: 1}, timeline: {status: 'ready', version: 1}},
+    LIVE: {scene: 'Current scene'}, codeVer: 1, REPLIES: {notes: {}},
     byId: id => c.notes.find(n => n.id === id),
     postJson: async (url, body) => {
       calls.push({url, body});
@@ -31,10 +33,12 @@ function fixture(input = [note()]) {
         notes: body.notes.map(n => ({id: n.id, frame: n.frame + 12, end: n.end == null ? null : n.end + 12}))};
     },
     persist: () => saved.push(clone(c.notes)), renderAll() {},
-    contextAt: frame => ({scene: `Scene at ${frame}`}),
+    contextAt: frame => ({scene: c.LIVE ? `${c.LIVE.scene} at ${frame}` : ''}),
+    fetch: async () => ({json: async () => c.nextTimeline}), buildLanes() {}, draw() {}, renderInspector() {}, showShot() {},
     setTimeout: callback => callback(), setSave: (message, state) => notices.push({message, state}),
     TN: key => key});
   vm.runInContext(following, c);
+  vm.runInContext('liveVer = 1', c);
   return {c, calls, saved, notices};
 }
 
@@ -48,6 +52,57 @@ test('Migrates an old automatic position once, preserving replies, marks and ori
   assert.equal(c.notes[0].before[0].frame, 900);
   await c.followPlans();
   assert.equal(calls.length, 1); assert.equal(saved.length, 1);
+});
+
+test('Recalage waits for the current timeline and resumes when it is loaded', async () => {
+  for (const stale of [false, true]) {
+    const {c, calls, saved} = fixture();
+    c.notes[0].context = {scene: 'Original context'};
+    if (stale) c.STATUS.timeline.version = 2; else c.LIVE = null;
+    await c.followPlans();
+    assert.equal(calls.length, 0); assert.equal(saved.length, 0);
+    assert.equal(c.notes[0].context.scene, 'Original context');
+    c.nextTimeline = {status: 'ready', version: c.STATUS.timeline.version, data: {scene: 'Correct scene'}};
+    await c.loadLive();
+    await c.followPlans();
+    assert.equal(c.notes[0].frame, 112);
+    assert.equal(c.notes[0].context.scene, 'Correct scene at 112');
+  }
+});
+
+test('Recalage also waits for the player version used by note context', async () => {
+  const {c, calls} = fixture(); c.notes[0].context = {scene: 'Original context'};
+  c.codeVer = 0;
+  await c.followPlans(); assert.equal(calls.length, 0);
+  assert.equal(c.notes[0].context.scene, 'Original context');
+  c.codeVer = 1;
+  await c.followPlans(); assert.equal(c.notes[0].frame, 112);
+  assert.equal(c.notes[0].context.scene, 'Current scene at 112');
+});
+
+test('An unchanged status still retries remapping after initial player loading', async () => {
+  const {c, calls} = fixture(); c.codeVer = 0;
+  const poll = client.slice(client.indexOf("  let repliesTxt = ''"), client.indexOf('  function applyRemaps()'));
+  const status = JSON.stringify(c.STATUS);
+  c.fetch = async url => ({ok: true, text: async () => url === '/api/status' ? status : '{"notes":{}}'});
+  c.onStatus = () => {}; c.applyRemaps = () => {}; c.setTimeout = () => 1;
+  vm.runInContext(poll, c);
+  await c.pollReplies(); assert.equal(calls.length, 0);
+  c.codeVer = 1;
+  await c.pollReplies();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  assert.equal(c.notes[0].frame, 112);
+  assert.equal(c.notes[0].context.scene, 'Current scene at 112');
+});
+
+test('A timeline changing during remap keeps the original context until the new plan loads', async () => {
+  const {c, saved} = fixture(); c.notes[0].context = {scene: 'Original context'}; let finish;
+  c.respond = () => new Promise(resolve => {finish = resolve;});
+  const pending = c.followPlans(); c.STATUS.timeline.version = 2;
+  finish({ok: true, mappingVersion: NOTE_MAPPING_VERSION, notes: [{id: 'a', frame: 112}]});
+  await pending;
+  assert.equal(saved.length, 0); assert.equal(c.notes[0].context.scene, 'Original context');
 });
 
 test('A manual position on the current plan is not migrated', async () => {

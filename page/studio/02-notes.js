@@ -593,6 +593,7 @@
       // (the agent's heartbeat changes every 5 s while it watches: taken, but the cards are not built again for it —
       // code review 18/10/2026: a field being typed in lost its input, its selection, its own undo every 5 s)
       if (s !== statusTxt) { const key = s.replace(/"beat":"[^"]*"/, ''); if (key !== statusKey) { statusKey = key; changed = true; } statusTxt = s; STATUS = JSON.parse(s); onStatus(); }
+      followPlans();   // Initial player loading can finish without another status change.
       if (changed) renderAll();
     } catch (e) {
       if (!offline) { offline = true; setSave(T('st.save.paused'), 'err'); }
@@ -638,8 +639,8 @@
     if (mode === 'code' && STATUS.code?.status === 'ready' && codeFailedVer !== ver) {
       if (SP && ver !== codeVer) {
         if (SP.isPlaying()) showCodeNote(`Version ${ver} disponible à la prochaine pause`);
-        else if (codeLoad?.ver !== ver) loadCode();
-      } else if (!SP && codeLoad?.ver !== ver) loadCode();
+        else if (codeLoad?.ver !== ver) loadCode().finally(followPlans);
+      } else if (!SP && codeLoad?.ver !== ver) loadCode().finally(followPlans);
     }
     if ((STATUS.timeline?.version ?? 0) !== liveVer) loadLive();
     showCodeStatus();
@@ -654,6 +655,8 @@
   // spoken line, the same shot, the same second of a source. Not a step of Ctrl+Z. A version whose plan is not known (a
   // video made outside Coulisses, without a plan): its notes stay on their frames, as before.
   const viewPlan = () => (mode === 'code' ? STATUS.plans?.code : STATUS.plans?.video) ?? null;
+  const followContextReady = () => mode !== 'code' || (LIVE && STATUS.timeline?.status === 'ready' &&
+    STATUS.timeline.version === liveVer && STATUS.code?.status === 'ready' && STATUS.code.version === codeVer);
   const followVersion = () => STATUS.plans?.mappingVersion ?? META.plans?.mappingVersion ?? 1;
   function anchorNote(n) {
     const p = viewPlan();
@@ -682,7 +685,7 @@
   }
   async function followPlans() {
     const to = viewPlan(), version = followVersion(), source = mode;
-    if (!to || !NOTES_OK || following || !repliesTxt) return;   // (the agent's answers read first: its recalage comes first)
+    if (!to || !NOTES_OK || following || !repliesTxt || !followContextReady()) return;   // The loaded plan supplies the new scene/dialogue context.
     // a new video there and this page about to load it (06-render.js onHeld), or the video being replaced: not now — the
     // page of the new video does it, with that video
     const vid = STATUS.video ?? null;
@@ -699,7 +702,7 @@
     following = true;
     try {
       const r = await postJson('/api/remap', { to, notes: todo.map((n) => ({ id: n.id, frame: n.at.frame, end: n.at.end ?? null, plan: n.at.plan })) });
-      if (!r?.ok || viewPlan() !== to || mode !== source || followVersion() !== version || (r.mappingVersion ?? 1) !== version) return;
+      if (!r?.ok || viewPlan() !== to || mode !== source || followVersion() !== version || (r.mappingVersion ?? 1) !== version || !followContextReady()) return;
       // Missing or ambiguous matches cannot erase the original anchor. Keeping it
       // allows recovery when a plan is restored or matching improves again.
       let refused = 0;
@@ -738,6 +741,7 @@
       if (r.status === 'ready' && r.data) {
         LIVE = r.data; liveVer = r.version;
         buildLanes(); draw(); renderInspector(); showShot();
+        followPlans();
       }
     } catch { /* retried with the next status */ }
   }
