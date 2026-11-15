@@ -477,6 +477,8 @@
   .thumb .x { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; padding: 0; border-radius: 999px; background: rgba(20, 22, 33, 0.95); justify-content: center; }
   .thread { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
   .msg { padding: 9px 12px; border-radius: 14px; font-size: 12.5px; white-space: pre-wrap; background: rgba(0, 0, 0, 0.2); line-height: 1.55; border: 1px solid var(--stroke); }
+  /* Keep long paths and URLs readable inside narrow message panels. */
+  .msg, .lot .msg2, .ag .me, .ag .it { min-width: 0; overflow-wrap: anywhere; }
   .msg.claude { background: linear-gradient(135deg, rgba(111, 231, 200, 0.10), rgba(201, 242, 107, 0.05)); border-color: rgba(111, 231, 200, 0.18); }
   .msg.user { background: linear-gradient(135deg, rgba(180, 156, 255, 0.12), rgba(180, 156, 255, 0.04)); border-color: rgba(180, 156, 255, 0.18); }
   .msg .who { font: 600 11px var(--font-d); color: var(--s11); margin-bottom: 3px; }
