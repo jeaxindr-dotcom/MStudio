@@ -15,9 +15,9 @@ process.env.COULISSES_HISTORY_DIR=path.join(box,'history');
 process.env.COULISSES_GPU='cpu'; process.env.COULISSES_LANG='fr'; process.env.DRY='1';
 const fake=path.join(box,'recipe.mjs');
 process.env.STUDIO_RENDER_RECIPE=fake;
-const {episode,optionsFrom,readJson,writeJson}=await import('../lib/episode.mjs');
+const {episode,optionsFrom,readJson,writeJson,flagsOf}=await import('../lib/episode.mjs');
 const {startRender}=await import('../lib/render-launch.mjs');
-const {runRender,renderState,renderFiles,markReviewed}=await import('../lib/render.mjs');
+const {runRender,renderState,renderFiles,markReviewed,isNativeRenderProject}=await import('../lib/render.mjs');
 let checks=0;
 const pass=s=>console.log('ok '+(++checks)+' - '+s);
 function fixture(name) {
@@ -51,6 +51,26 @@ async function ended(p) {
   throw new Error('Worker did not finish: '+JSON.stringify(renderState(p)));
 }
 recipe({slow:1100});
+const native=fixture('native-path-check');
+delete process.env.STUDIO_RENDER_RECIPE;
+assert.match(flagsOf(native),/--theatre/);
+assert.equal(isNativeRenderProject(native),true);
+assert.equal(isNativeRenderProject({...native,remotionDir:path.join(box,'some-other-engine')}),false);
+assert.equal(isNativeRenderProject({...native,episodesDir:path.join(box,'copied-episodes')}),false);
+const sandboxEP=path.join(box,'copied-episodes','E01 - Fixture');
+const sandbox={...native,EP:sandboxEP,REVUE:path.join(sandboxEP,'revue'),episodesDir:path.dirname(sandboxEP)};
+assert.equal(isNativeRenderProject(sandbox),false);
+assert.throws(()=>startRender(sandbox),/dossier natif/);
+const customTheatre=path.join(box,'custom-native'),customEP=path.join(customTheatre,'Episodes personnalisés','E01 - Fixture');
+const custom={...native,theatre:customTheatre,EP:customEP,REVUE:path.join(customEP,'revue'),episodesDir:path.dirname(customEP),
+  remotionDir:path.join(customTheatre,'Moteur personnalisé'),coulisses:path.join(customEP,'Fixture.coulisses')};
+writeJson(custom.coulisses,{coulisses:1,moteur:'brambleshire',episode:'E01',revue:'revue',remotion:{projet:path.relative(customEP,custom.remotionDir)}});
+assert.equal(isNativeRenderProject(custom),true);
+assert.equal(isNativeRenderProject({...custom,remotionDir:native.remotionDir}),false);
+writeJson(custom.coulisses,{coulisses:1,moteur:'brambleshire',episode:'E02',revue:'revue',remotion:{projet:path.relative(customEP,custom.remotionDir)}});
+assert.equal(isNativeRenderProject(custom),false);
+process.env.STUDIO_RENDER_RECIPE=fake;
+pass('explicit native theatres and validated custom documents are accepted; sandbox overrides are refused without a fake recipe');
 const p=fixture('success'); const notes=fs.readFileSync(p.NOTES), replies=readJson(p.REPLIES,{}).notes;
 const started=startRender(p,{qualite:'4k',vitesse:1});
 assert.equal(started.state,'running'); assert.equal(started.producer,'studio-render'); assert.ok(started.pid>0); assert.notEqual(started.pid,process.pid);

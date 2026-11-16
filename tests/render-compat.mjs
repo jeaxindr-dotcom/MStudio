@@ -82,12 +82,22 @@ try {
   assert.equal(readJson(path.join(p.REVUE,'render.json'),{}).state,'reviewed');
   pass('legacy CLI review completion remains supported');
   const noFake={...env};delete noFake.STUDIO_RENDER_RECIPE;
+  const sandboxEpisodes=path.join(box,'sandbox-episodes'),sandboxEp=path.join(sandboxEpisodes,p.folder);
+  const sandboxReview=path.join(sandboxEp,'revue');
+  fs.mkdirSync(path.join(sandboxReview,'lots'),{recursive:true});
+  fs.copyFileSync(film,path.join(sandboxEp,p.folder+'.mp4'));
+  fs.copyFileSync(p.NOTES,path.join(sandboxReview,'notes.json'));
+  fs.copyFileSync(p.REPLIES,path.join(sandboxReview,'replies.json'));
+  fs.copyFileSync(path.join(p.LOTS,'001.json'),path.join(sandboxReview,'lots','001.json'));
+  const sandboxArgs=['studio-cli.mjs','render','E01','--theatre',theatre,'--episodes',sandboxEpisodes,'1'];
   let refused;
-  try { await run(process.execPath,args,{cwd:root,env:noFake,windowsHide:true,timeout:15000}); }
+  try { await run(process.execPath,sandboxArgs,{cwd:root,env:noFake,windowsHide:true,timeout:15000}); }
   catch(error) { refused=error; }
-  assert.ok(refused,'real render outside the native default theatre must be refused');
+  assert.ok(refused,'real render into ad-hoc --episodes sandbox must be refused');
   assert.match(String(refused.stdout)+String(refused.stderr),/seulement sur le vrai projet|only.*real/i);
   assert.equal(hash(film),newHash);assert.deepEqual(fs.readFileSync(p.NOTES),notesBefore);
+  assert.equal(hash(path.join(sandboxEp,p.folder+'.mp4')),newHash);
+  assert.deepEqual(fs.readFileSync(path.join(sandboxReview,'notes.json')),notesBefore);
   pass('legacy sandbox guard rejects real finish without changing the film or notes');
 } finally {
   await new Promise(resolve=>server.close(resolve));
