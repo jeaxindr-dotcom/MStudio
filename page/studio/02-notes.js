@@ -601,6 +601,7 @@
       // (the agent's heartbeat changes every 5 s while it watches: taken, but the cards are not built again for it —
       // code review 18/10/2026: a field being typed in lost its input, its selection, its own undo every 5 s)
       if (s !== statusTxt) { const key = s.replace(/"beat":"[^"]*"/, ''); if (key !== statusKey) { statusKey = key; changed = true; } statusTxt = s; STATUS = JSON.parse(s); onStatus(); }
+      if (reconcilePublishedNotes()) changed = true;   // A lost send response can be recovered even when status is unchanged.
       followPlans();   // Initial player loading can finish without another status change.
       if (changed) renderAll();
     } catch (e) {

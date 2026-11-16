@@ -44,6 +44,7 @@ const SUITES = [
   ['shot-render-regressions', 'self'],
   ['initial-publication-regressions', 'self'],
   ['reply-delivery', 'self'], ['reply-delivery-ui', 'self'], ['reply-images', 'self'], ['reply-delivery-browser', 'self'],
+  ['note-delivery-recovery', 'self'], ['note-delivery-recovery-browser', 'self'],
   ['code-playback-i18n', 'self'],
   ['audio-regressions', 'self'], ['player-build-regressions', 'self'], ['require-context', 'self'], ['preview-transaction-regressions', 'self'], ['initial-code-mode', 'self'], ['preview-protocol-regressions', 'self'], ['preview-lifecycle', 'self'], ['preview-server-regressions', 'self'], ['project-patches', 'self'], ['project-patches-e15', 'self'], ['timeline-loop-regressions', 'self'], ['code-playback-regressions', 'self'], ['code-playback-render-regressions', 'self'], ['frames-cache-regressions', 'self'], ['code-playback-sources', 'self'], ['code-playback-ui', 'self'], ['code-playback-routes', 'self'], ['render-activity', 'self'], ['code-playback-browser', 'self'],
   ['typecheck', 'self'], ['guard', 'self'], ['temp-sweep', 'self'], ['file-release', 'self'], ['export-speed', 'self'], ['speed-envois', 'self'], ['send-lots', 'self'], ['notes-safety', 'self'], ['note-states', 'self'], ['note-follow', 'self'], ['dictate', 'self'], ['browser-access', 'self'], ['preview-memory', 'self'], ['preview-speed', 'self'], ['coulisses', 'self'], ['coulisses-video', 'self'], ['coulisses-export', 'self'], ['projects', 'self'],

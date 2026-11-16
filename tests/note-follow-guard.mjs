@@ -32,7 +32,7 @@ function fixture(input = [note()]) {
       return c.respond ? c.respond(body) : {ok: true, to: body.to, mappingVersion: NOTE_MAPPING_VERSION,
         notes: body.notes.map(n => ({id: n.id, frame: n.frame + 12, end: n.end == null ? null : n.end + 12}))};
     },
-    persist: () => saved.push(clone(c.notes)), renderAll() {},
+    persist: () => saved.push(clone(c.notes)), renderAll() {}, reconcilePublishedNotes: () => false,
     contextAt: frame => ({scene: c.LIVE ? `${c.LIVE.scene} at ${frame}` : ''}),
     fetch: async () => ({json: async () => c.nextTimeline}), adoptTimelineDuration: () => false, buildLanes() {}, draw() {}, renderInspector() {}, showShot() {},
     setTimeout: callback => callback(), setSave: (message, state) => notices.push({message, state}),

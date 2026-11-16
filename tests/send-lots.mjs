@@ -56,6 +56,7 @@ try {
   const r1 = await createLot(P, body, { fps: 30, size: [1920, 1080], log });
   const L1 = readLot(P, r1.lot);
   check(r1.lot === 1 && !r1.again && fs.existsSync(r1.md) && L1.edits.length === 3, `the batch and its request (lot ${r1.lot}, ${L1?.edits.length} edits)`);
+  check(r1.sentAt === L1.sentAt && /\.\d{3}Z$/.test(r1.sentAt), 'the receipt identifies the saved request with millisecond precision');
   const c1 = L1.edits[0].captures;
   check(size(c1.marque).join('×') === '1280×720', `the marked frame at the video's size (${size(c1.marque).join('×')})`);
   // the square drawn at 900–1000 × 700–800 of the composition is at 600–667 × 467–533 of the frame
@@ -75,6 +76,7 @@ try {
   const r2 = await createLot(P, body, { fps: 30, size: [1920, 1080], log });
   const L2 = readLot(P, 1), md2 = fs.readFileSync(lotFile(P, 1, 'md'), 'utf8');
   check(r2.lot === 1 && r2.again && L2.resent && L2.firstSent && L2.edits[0].text === 'La lumière ici, plus douce', `the batch the agent took, again (lot ${r2.lot}), with the notes as they are now`);
+  check(r2.sentAt === L2.sentAt, 'a repeated send returns the timestamp of the published batch');
   check(/Lot renvoyé/.test(md2) && /plus douce/.test(md2), 'its request says it was sent again');
   const aside = fs.existsSync(path.join(P.REVUE, 'lots-annules')) ? fs.readdirSync(path.join(P.REVUE, 'lots-annules')) : [];
   check(lotNumbers(P).join() === '1' && aside.some((d) => d.startsWith('002-')) && logs.some((l) => /lot 2 mis de côté/.test(l)), `the copy nobody took set aside (${aside.join(', ')})`);
@@ -85,10 +87,11 @@ try {
   check(r3.lot === 1 && r3.again === 'done' && lotNumbers(P).join() === '1', `already handled by the agent: that batch, said « done » (${r3.again})`);
   // « Renvoyer » on that note, done by the agent (code review 18/10/2026: it was answered « déjà traitée »): the note
   // changed since (the page stamps it) — a new request, a new batch
-  await new Promise((r) => setTimeout(r, 2500));
-  notes[0].updated = new Date().toISOString(); fs.writeFileSync(P.NOTES, JSON.stringify({ episode: P.ep, notes }));
+  notes[0].draft = true; notes[0].lot = 1;
+  notes[0].updated = notes[0].draftQueuedAt = readLot(P, 1).sentAt;
+  fs.writeFileSync(P.NOTES, JSON.stringify({ episode: P.ep, notes }));
   const r4 = await createLot(P, body, { fps: 30, size: [1920, 1080], log });
-  check(r4.lot === 2 && !r4.again && lotNumbers(P).join() === '1,2', `« Renvoyer » on a note the agent did: a new batch (lot ${r4.lot})`);
+  check(r4.lot === 2 && !r4.again && lotNumbers(P).join() === '1,2', `« Renvoyer » even in the same millisecond: a new batch (lot ${r4.lot})`);
   check(r2.again === 'taken', `taken by the agent before: said « taken » (${r2.again})`);
 
   // ---------- 3. studio-cli wait on a batch without its request ----------

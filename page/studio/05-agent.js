@@ -3,6 +3,76 @@
 // so they share their names as the one inline script did; hence the two-space indent.
   // ---------- pending edits -> Claude ----------
   let sending = false;
+  // Publishing a batch and receiving its HTTP response are separate events. A
+  // lost response must not keep an already delivered annotation in the queue.
+  // Only a published batch containing this ID is evidence of delivery; an agent
+  // reply or a checked "fixed" box says nothing about the current draft.
+  function deliveryTime(n) {
+    const dates = [n.updated ?? n.created, n.draftQueuedAt, ...(n.thread ?? []).map(m => m.at)].filter(v => v != null);
+    if (!dates.length) return NaN;
+    const times = dates.map(v => typeof v === 'string' && v.trim() ? Date.parse(v) : NaN);
+    return times.every(Number.isFinite) ? Math.max(...times) : NaN;
+  }
+  function publishedDraft(n, lots = STATUS.lots ?? []) {
+    if (!n.draft) return null;
+    const changed = deliveryTime(n);
+    if (!Number.isFinite(changed)) return null;
+    return lots.filter(L => L && L.kind !== 'render' && Number.isSafeInteger(L.lot) && L.lot > 0 &&
+      Array.isArray(L.ids) && L.ids.includes(n.id) && Number.isFinite(Date.parse(L.sentAt)) && changed <= Date.parse(L.sentAt) &&
+      // Renvoyer keeps the previous lot number. Its publication is not proof
+      // that this new request has been sent, even within the same millisecond.
+      (!n.lot || L.lot > Number(n.lot)) &&
+      (!n.draftQueuedAt || Date.parse(n.draftQueuedAt) < Date.parse(L.sentAt)))
+      .sort((a, b) => Date.parse(b.sentAt) - Date.parse(a.sentAt) || b.lot - a.lot)[0] ?? null;
+  }
+  function applyDelivery(n, receipt) {
+    n.draft = false; n.lot = receipt.lot; n.sentAt = receipt.sentAt;
+    delete n.draftQueuedAt;
+  }
+  function rebaseDeliveryHistory(receipts) {
+    const rebase = state => {
+      const snapshot = JSON.parse(state);
+      for (const old of snapshot) {
+        const receipt = receipts.get(old.id);
+        if (receipt && publishedDraft(old, [receipt])) applyDelivery(old, receipt);
+      }
+      return JSON.stringify(snapshot);
+    };
+    for (const entry of [...HIST.back, ...HIST.fwd]) if (entry.type === 'notes') entry.state = rebase(entry.state);
+    if (HIST.last !== null) HIST.last = rebase(HIST.last);
+  }
+  function reconcilePublishedNotes() {
+    if (!NOTES_OK || sending) return false;
+    const receipts = new Map();
+    for (const n of notes) {
+      const receipt = publishedDraft(n);
+      if (!receipt) continue;
+      applyDelivery(n, receipt); receipts.set(n.id, receipt);
+    }
+    if (!receipts.size) return false;
+    rebaseDeliveryHistory(receipts);
+    persist();
+    return true;
+  }
+  // A late response cannot acknowledge edits made while its request was in
+  // flight. Automatic timing follows the same original anchor, so derived
+  // frames, source, render and readiness must not turn it into a new request.
+  const deliveryContent = n => JSON.stringify([
+    n.text, n.at?.plan ? n.at : {frame:n.frame,end:n.end ?? null},
+    n.thread, n.mark, n.target, n.kind, n.images, n.stage, n.media, n.grade, n.timing, n.updated, n.draftQueuedAt,
+  ]);
+  function confirmDelivery(id, content, receipt) {
+    const n = byId(id);
+    if (!n || !n.draft) return false;
+    if (deliveryContent(n) !== content) {
+      // This batch received the earlier content. Keep the new content queued,
+      // and remember its predecessor so a later status cannot acknowledge it.
+      if (!n.lot || Number(n.lot) < receipt.lot) { n.lot = receipt.lot; n.sentAt = receipt.sentAt; }
+      return false;
+    }
+    applyDelivery(n, receipt);
+    return true;
+  }
   function renderQueue() {
     const d = drafts();
     $('#qcnt').textContent = MAXQ ? `${d.length} / ${MAXQ}` : String(d.length); $('#qcnt').classList.toggle('full', !!MAXQ && d.length >= MAXQ);
@@ -17,13 +87,18 @@
     sending = true; renderQueue();
     try {
       if (!(await flushNow())) throw new Error(T('st.send.notSaved'));
+      // Saving may merge another tab and replace note objects. Capture exactly
+      // the current version the server is about to put into the batch.
+      for (let i = 0; i < d.length; i++) d[i] = byId(d[i].id) ?? d[i];
       const marks = {}, cnv = document.createElement('canvas'); cnv.width = CW; cnv.height = CH;
       const num = new Map(reviewed().map((n, i) => [n.id, i + 1]));
       for (const n of d) if (n.mark) { const g = cnv.getContext('2d'); g.clearRect(0, 0, CW, CH); paintMark(g, n.mark, String(num.get(n.id)), 1, '#b49cff'); marks[n.id] = cnv.toDataURL('image/png'); }
+      const content = new Map(d.map(n => [n.id, deliveryContent(n)]));
       const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: d.map((n) => n.id), words: $('#qwords').value, marks, agent: AGENT_PICK, fps: FPS, size: [CW, CH] }) });
       const res = r.ok ? await r.json() : null;
       if (!res?.ok) throw new Error(r.ok ? T('st.send.emptyAnswer') : await r.text());
-      for (const n0 of d) { const n = byId(n0.id) ?? n0; n.draft = false; n.lot = res.lot; n.sentAt = now(); }
+      const receipt = { lot: res.lot, sentAt: res.sentAt ?? now() };
+      for (const n0 of d) confirmDelivery(n0.id, content.get(n0.id), receipt);
       // the send before had failed on the way: that batch, its images made again; already handled by the agent: said, no window
       if (res.again === 'done') { HIST.back = []; HIST.fwd = []; HIST.last = null; $('#qwords').value = ''; save(); setTab('lots'); setSave(T('st.send.againDone', { lot: res.lot }), 'ok'); sending = false; renderAll(); return; }
       if (res.again) setTimeout(() => setSave(T('st.send.again', { lot: res.lot }), 'ok'), 1800);
@@ -59,10 +134,13 @@
     persist(); renderAgent();
     try {
       if (!(await flushNow())) throw new Error(T('st.send.notSaved'));
+      n = byId(n.id) ?? n;
+      const content = deliveryContent(n);
       const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [n.id], words: '', marks: {}, agent: AGENT_PICK, fps: FPS, size: [CW, CH] }) });
       const res = r.ok ? await r.json() : null;
       if (!res?.ok) throw new Error(r.ok ? T('st.send.emptyAnswer') : await r.text());
-      n = byId(n.id) ?? n; n.draft = false; n.lot = res.lot; n.sentAt = now(); HIST.back = []; HIST.fwd = []; HIST.last = null; persist();
+      confirmDelivery(n.id, content, { lot: res.lot, sentAt: res.sentAt ?? now() });
+      n = byId(n.id) ?? n; HIST.back = []; HIST.fwd = []; HIST.last = null; persist();
       if (parallax) setSave((FR ? 'Demande enregistrée · lot ' : 'Request saved · batch ') + res.lot, 'ok');
       else if (!res.agent?.watching) showDeliveryModal(res.lot, T('st.ag.sentTitle', { lot: res.lot }), res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId });
       else setSave(T('st.ag.waiting') + ' · ' + T('st.rc.lot',{lot:res.lot}), 'ok');
@@ -76,10 +154,6 @@
   let agentSig = '';
   function renderAgent() {
     const box = $('#agentList'); if (!box) return;
-    for (const request of prompts().filter(n => n.draft)) {
-      const published = STATUS.lots?.find(L => L.ids?.includes(request.id));
-      if (published) { request.draft = false; request.lot = published.lot; request.sentAt = published.sentAt; persist(); }
-    }
     const a = STATUS.agent ?? {}, who = $('#agentWho');
     const presence=agentPresence(STATUS);
     who.classList.toggle('on', !!a.watching);

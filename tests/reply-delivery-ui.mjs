@@ -37,7 +37,7 @@ function setup({ watching = false, statusFails = false, saved = true, flush = nu
   const c = {
     FR: true, T: (key) => key, esc, META: { connectLine: 'Coulisses : connecter cette session', render: null }, STATUS: { agent: { watching: true } }, REPLIES: { notes: { note27: { messages: [{ text: 'Corrigé', at: '2026-10-25T13:49:00Z' }] } }, userReplies: {} },
     pending: { note27: { text: reply, images } }, now: () => '2026-10-26T02:44:00Z', uid: () => 'message-neuf', fixedOf: (note) => note.status === 'done', byId: () => n,
-    save: () => events.push('save'), renderAll: () => events.push('render'), flushNow: async () => { events.push('flush'); return flush ? flush() : saved; },
+    save: () => events.push('save'), renderAll: () => events.push('render'), reconcilePublishedNotes: () => false, flushNow: async () => { events.push('flush'); return flush ? flush() : saved; },
     fetch: async (url, options) => {
       assert.equal(options.cache, 'no-store'); assert.ok(!options.method || options.method === 'GET');
       if (url === '/api/replies') { events.push('replies'); return { ok: receiptsStatus === 200, status: receiptsStatus, json: async () => receipts ? receipts(n, c.REPLIES) : c.REPLIES }; }

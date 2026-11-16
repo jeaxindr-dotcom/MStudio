@@ -58,7 +58,7 @@
   // ---------- note cards (Modifs = waiting to be sent ; Notes = the others) ----------
   // a plain Entrée (no Maj, Ctrl, Alt), not the one that confirms the characters of a Japanese or Chinese input
   function enterKey(e) { return e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && e.keyCode !== 229; }
-  function renderAll() { syncModalUpdates(); syncDeliveryModal(); renderAgent(); renderQueue(); renderLots(); renderList(); renderInspector(); draw(); drawOv(); syncStage(); if (onTab('scene')) renderScene(); }
+  function renderAll() { reconcilePublishedNotes(); syncModalUpdates(); syncDeliveryModal(); renderAgent(); renderQueue(); renderLots(); renderList(); renderInspector(); draw(); drawOv(); syncStage(); if (onTab('scene')) renderScene(); }
   function gestureHtml(n) {
     if (n.stage) return `<div class="gest">${ic('move')}<span class="obj">${esc(n.stage.name)}</span><span class="k">${esc(deltaWords(n.stage.delta))}</span></div>`;
     if (!n.mark && !n.target) return '';
@@ -136,7 +136,7 @@
         { icon: 'end', label: isR ? T('st.menu.end') : T('st.menu.rangeTo'), run: () => { setFrames(n, n.frame, curFrame()); save(); renderAll(); } },
         ...(isR ? [{ icon: 'point', label: T('st.menu.single'), run: () => { setFrames(n, n.frame, null); save(); renderAll(); } }] : []),
         ...(n.mark ? [{ icon: 'x', label: T('st.menu.clearGesture'), run: () => { delete n.mark; delete n.target; n.updated = now(); save(); renderAll(); } }] : []),
-        ...(!n.draft ? ['-', { icon: 'repeat', label: T('st.menu.resend'), run: () => { if (queueFull()) return; n.draft = true; n.updated = now(); if (fixedOf(n)) { n.status = 'open'; n.statusAt = now(); } save(); setTab('queue'); renderAll(); showCard(n.id); } }] : []),
+        ...(!n.draft ? ['-', { icon: 'repeat', label: T('st.menu.resend'), run: () => { if (queueFull()) return; n.draft = true; n.updated = n.draftQueuedAt = now(); if (fixedOf(n)) { n.status = 'open'; n.statusAt = n.updated; } save(); setTab('queue'); renderAll(); showCard(n.id); } }] : []),
         '-',
         { icon: 'trash', label: n.draft ? T('st.menu.removeEdit') : T('st.menu.deleteNote'), danger: true, run: () => { if ((n.draft && !n.text.trim() && !n.images?.length) || confirm(n.draft ? T('st.menu.removeEditConfirm') : T('st.menu.deleteNoteConfirm'))) delNote(n.id); } },
       ];
