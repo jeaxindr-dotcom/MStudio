@@ -2,6 +2,8 @@
 
 A Windows desktop studio for editing videos made with Remotion. Review a composition before export, navigate its timeline, and send the coding agent notes tied to a frame. MStudio succeeds Coulisses and can run alongside an existing Coulisses installation.
 
+**Start the render** launches the export in the application for every project, including Brambleshire episodes. No connected agent is required: progress, stopping, errors, and the finished video remain available in MStudio.
+
 **[Download MStudio for Windows x64](https://github.com/jeaxindr-dotcom/MStudio/releases/latest)** · [Français](README.fr.md)
 
 ## Use a video as a starting point
@@ -19,7 +21,7 @@ Tested with [Lucas Vieira’s public-domain animation](https://commons.wikimedia
 
 ## Windows installation
 
-For a first installation, download and run `MStudio-Setup-0.2.11-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
+For a first installation, download and run `MStudio-Setup-0.2.12-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
 
 For subsequent versions, click **Update** in the library or an open project. Once the download is verified, choose **Restart and install now** or **Install next time MStudio opens**. **Cancel** dismisses the dialog and keeps the downloaded installer.
 

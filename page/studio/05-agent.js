@@ -250,24 +250,19 @@
     if (signalClock) { clearTimeout(signalClock); signalClock = null; }
     const box = $('#lots'), lots = [...(STATUS.lots ?? [])].reverse();
     $('#nLots').textContent = lots.length; $('#nLots').classList.toggle('zero', !lots.length);
-    $('#nLots').classList.toggle('hot', lots.some((L) => L.claude?.status === 'taken'));
+    $('#nLots').classList.toggle('hot', lots.some((L) => L.kind !== 'render' && L.claude?.status === 'taken'));
     if (!onTab('lots')) { rcKey = ''; return; }
     renderRender();
     if (!lots.length) { box.innerHTML = `<div class="empty">${T('st.lot.none')}</div>`; return; }
     box.innerHTML = '';
     for (const L of lots) {
-      if (L.kind === 'render') {   // a render request: no edits, no undo
+      if (L.kind === 'render') {   // Old requests remain as history, never as work waiting for an agent.
         const el = document.createElement('div'); el.className = 'lot req';
-        const R = STATUS.render, mine = R?.lot === L.lot;
-        const [cls, key] = L.claude?.status === 'done' ? ['done', 'reviewed'] : !L.claude ? ['', 'waiting']
-          : !mine ? (R && Date.parse(R.startedAt) > Date.parse(L.sentAt) ? ['undone', 'replaced'] : ['taken', 'preparing'])
-          : ({ running: ['taken', 'running'], blocked: ['undone', 'blocked'], failed: ['undone', 'failed'], interrupted: ['undone', 'interrupted'],
-            cancelled: ['undone', 'cancelled'], rendered: ['taken', 'watching'], reviewed: ['done', 'reviewed'] }[R.state] ?? ['taken', 'preparing']);
-        const txt = key === 'waiting' ? T('st.lot.waiting') : T(`st.req.${key}`);
+        const cls = L.claude?.status === 'done' ? 'done' : 'undone';
+        const txt = FR ? 'Historique du rendu' : 'Render history';
         el.innerHTML = `<div class="lh"><b>${T('st.rc.render')}</b><span class="muted" style="font-size:12px">${T('st.lot.reqSub', { lot: L.lot, at: esc(hhmm(L.sentAt)) })}</span><span class="st ${cls}"><span class="dot"></span>${txt}</span></div>
-          ${L.claude?.message ? `<div class="msg2">${esc(L.claude.message)}</div>` : ''}<div class="acts"><button class="soft cp">${ic('copy')}${T('st.lot.copy')}</button></div>`;
-        el.querySelector('.cp').onclick = () => copy(L.line);
-        deliveryControls(L,el); box.appendChild(el); continue;
+          ${L.claude?.message ? `<div class="msg2">${esc(L.claude.message)}</div>` : ''}`;
+        box.appendChild(el); continue;
       }
       const [cls, txt] = lotState(L), el = document.createElement('div'); el.className = 'lot'; el.dataset.lot = L.lot;
       const canUndo = L.run?.finished && L.run.state !== 'undone', canRedo = L.run?.state === 'undone';

@@ -2,6 +2,8 @@
 
 Un studio Windows pour monter et réviser des vidéos Remotion : prévisualisation du code avant export, timeline, storyboard et demandes de modification adressées à l’agent depuis une image précise. MStudio succède à Coulisses et peut être installé à côté de celui-ci.
 
+Le bouton **Lancer le rendu** démarre l’export dans le logiciel pour tous les projets, y compris les épisodes Brambleshire. Aucun agent connecté n’est nécessaire : progression, arrêt, erreurs et vidéo terminée restent accessibles dans MStudio.
+
 **[Télécharger MStudio pour Windows x64](https://github.com/jeaxindr-dotcom/MStudio/releases/latest)** · [English](README.md)
 
 ## Partir d’une vidéo
@@ -19,7 +21,7 @@ Sur [l’animation de Lucas Vieira publiée dans le domaine public](https://comm
 
 ## Installer et ouvrir
 
-Pour une première installation, télécharge et lance `MStudio-Setup-0.2.11-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
+Pour une première installation, télécharge et lance `MStudio-Setup-0.2.12-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
 
 Pour les versions suivantes, clique sur **Mise à jour** dans la bibliothèque ou dans un projet ouvert. Une fois le téléchargement vérifié, choisis **Redémarrer pour installer maintenant** ou **Installer à la prochaine ouverture**. **Annuler** ferme la fenêtre et conserve le téléchargement.
 

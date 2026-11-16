@@ -31,7 +31,7 @@ A `Pxxxxxxxx` or `E19` identifier without context uses the app's library. For an
 
 Some words are read by programs and other agents, so they never change with the language. In English, a short gloss follows them:
 
-- `wait` prints `LOT N REÇU (batch N received) from the tool …`, or `DEMANDE DE RENDU (lot N) REÇUE (render request N received) …`;
+- `wait` prints `LOT N REÇU (batch N received) from the tool …`. Older files may contain `DEMANDE DE RENDU (lot N) REÇUE`; current renders start in the application and are not agent batches;
 - `render` ends with `RENDU TERMINÉ (render finished)`, `RENDU ARRÊTÉ (render stopped)`, `RENDU NON LANCÉ (render not started)`, `RENDU EN ÉCHEC (render failed)`, `CONTRÔLES PASSÉS (checks passed)` or `RENDU FAIT (sans finition) (render done, no finish)`;
 - `projet verifier` ends with `PROJET CONFORME (compliant)` or `PROJET NON CONFORME (not compliant)`;
 - the export scripts of the pipelines print `COULISSES PROGRES <0-100> <step>`, `COULISSES FIN "<file>"` and `COULISSES REMPLACE "<file>"` (see the contract).
@@ -57,7 +57,7 @@ A reply includes its note, previous batch and absolute image paths. A complete f
 
 ## Updates, checked with every batch
 
-With every batch (and every render request), the studio checks what may need updating on the agent's side. The result is the "Updates (checked when sent)" section of the `.md`, and the user sees its summary in the send window. It covers:
+With every correction batch, the studio checks what may need updating on the agent's side. A user-started render does not trigger this check. The result is the "Updates (checked when sent)" section of the `.md`, and the user sees its summary in the send window. It covers:
 
 - **Remotion** (an episode): the version installed in the project, against the latest on npm.
 - **The agent's skills installed by the `skills` tool** (`~/.agents/.skill-lock.json`), against their source on GitHub. For Codex, this covers both its folders, `~/.codex/skills` and `~/.agents/skills`.
@@ -133,20 +133,15 @@ Since 09/10/2026, MStudio also reviews **HyperFrames** projects (a video = an HT
 - **I never export.** The user starts the export from MStudio (the Export button: `hyperframes render`, into `renders\`). The studio loads the new video by itself at the end.
 - **Nothing is installed or updated** without the user's consent, neither the HyperFrames tool nor its skills (the home screen has an « Updates » button for that).
 
-## A render request
+## Rendering belongs to the user
 
-The "Start the render" button of the Batches tab (or Tools › Start the render) sends a **render request**: a batch with no edit (`"kind": "render"`). It arrives like the others: through the pasted line `MStudio · E03 · render (batch N) → …`, or through `wait`, which then prints `DEMANDE DE RENDU (lot N) REÇUE (render request N received)`. Its `.md` says what the render carries, that is the batches sent since the current video, with their state and the files touched. It also says whether the engine changed.
+In **every project**, including Brambleshire, "Start the render" starts the export in MStudio. It does not create an agent batch or wait for `take`, `render`, or `done`. The user chooses the quality and starts, stops, or retries the render in the application.
 
-1. `CLI take E03 <batch>`. The studio shows "The agent is preparing the render".
-2. First finish the batches still open. If the engine changed (`src/engine`, `src/cardboard`, `Episode.tsx`, a shared component), also run the three non-regression tests (step 4 of the skill).
-3. `CLI render E03 <batch>` **in the background** (Bash `run_in_background`). The command chains:
-   - the five automatic checks (depth, hidden faces, grounded backdrops, music, jumps). If one fails, it stops before the render and says which one: fix it, then run the same command again;
-   - the Remotion render, with the command of step 6 of the skill (Chrome, `--gl=angle`, `--concurrency=6`), to `out/<enn>-raw.mp4`;
-   - `scripts/finish-render.sh`: final mix, plan of the render, notes moved, chapters. Meanwhile, every studio open on the episode lets go of the video (`/api/hold`), then takes it back and reloads by itself.
+For Brambleshire, MStudio runs the automatic checks, the Remotion render, then `scripts/finish-render.sh` (final mix, render timeline, note remapping, and chapters). Progress and errors appear in the application and are saved in `revue/render.json` and `revue/render.log`. The video is available when the export finishes; agent approval is not required.
 
-   The progress is written to `revue/render.json`, the full output to `revue/render.log`. The studio shows the steps, the current frame, the time left and the final loudness.
-4. At the end, the command prints the loudness. Check Integrated ≈ −16 LUFS and True peak ≤ −1.0 dBTP, then **watch the whole video**, as in step 6 of the skill.
-5. `CLI done E03 <batch> "<what I saw>"`. The studio shows "Render checked by the agent", and offers "Compare before / after": for each fixed note, the batch's frame (old render) against the same frame in the new video.
+The agent handles requested corrections and regression tests for its own changes. Do not launch another export because a historical `"kind": "render"` batch exists. If an export check fails, the agent may fix it at the user's request; the user then restarts the render. Do not change code or media used by an ongoing render.
+
+The user may separately request a visual review from the agent; it does not block delivery of the file. Legacy rendering CLI commands remain compatibility tools, to be used only at the user's explicit request.
 
 Good to know:
 

@@ -1,7 +1,7 @@
-// The studio's page (studio.html), part 06: the full render (asked here, run by the agent), the before / after wipe.
+// The studio's page (studio.html), part 06: user-started renders and the before / after wipe.
 // The parts of page/studio/ are one script: studio-server.mjs joins them in their order inside one function (/studio.js),
 // so they share their names as the one inline script did; hence the two-space indent.
-  // ---------- the full re-render: asked here, run by Claude (studio-cli.mjs render), progress in STATUS.render ----------
+  // ---------- full render: started by the studio, progress in STATUS.render ----------
   const dayTime = (iso) => (iso ? (FR ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(' ', ' à ')
     : `${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`) : '?');
   const frDur = (s) => (FR ? String(s ?? '').replace(/(\d+)h/, '$1 h').replace(/(\d+)m(?!s)/, '$1 min').replace(/(\d+)s/, '$1 s') : String(s ?? ''));
@@ -10,29 +10,26 @@
   const finLabel = (l) => (/final mix/.test(l) ? T('st.fin.mix') : /review tool/.test(l) ? T('st.fin.plan') : /chapters/i.test(l) ? T('st.fin.chapters')
     : /paused/.test(l) ? T('st.fin.paused') : /is back/.test(l) ? T('st.fin.back') : l);
   const BAD = ['blocked', 'failed', 'interrupted', 'cancelled'];
+  let renderStarting = false;
   function renderView() {
     const lots = STATUS.lots ?? [], R = STATUS.render ?? null, cur = STATUS.video ?? META?.render ?? null;
-    const req = [...lots].reverse().find((L) => L.kind === 'render') ?? null;
-    const after = (a, b) => a && b && Date.parse(a) >= Date.parse(b);
-    let st = 'idle';
-    if (req && !req.claude) st = 'requested';
-    else if (req?.claude?.status === 'taken') st = R && after(R.startedAt, req.sentAt) && !['checked', 'rendered-raw'].includes(R.state) ? R.state : 'preparing';
-    else if (R?.state === 'running') st = 'running';
-    else if (R?.state === 'rendered' && R.video && cur && R.video.size === cur.size) st = 'rendered';
+    // A legacy request is history, never proof that a process is running.
+    const st = renderStarting ? 'starting' : R?.state === 'running' ? 'running'
+      : BAD.includes(R?.state) ? R.state : ['rendered', 'reviewed'].includes(R?.state) ? 'rendered' : 'idle';
     const since = lots.filter((L) => L.kind !== 'render' && cur && L.render?.size === cur.size);
-    return { st, R, req, cur, since };
+    return { st, R, cur, since };
   }
   function renderPill() {
     const p = $('#renderPill');
     if (PROJ) {   // a project: its export, as « Rendu 36 % »
-      const X = STATUS.export, run = X?.state === 'running', pc = X?.frames?.total ? (X.frames.done / X.frames.total) * 100 : X?.pct ?? 0;
+      const X = STATUS.export, run = renderStarting || X?.state === 'running', pc = X?.frames?.total ? (X.frames.done / X.frames.total) * 100 : X?.pct ?? 0;
       p.className = run ? 'show' : ''; p.querySelector('.t').textContent = run ? T('st.pill.pct', { pct: Math.floor(pc) }) : ''; p.querySelector('.mini i').style.width = `${run ? pc : 0}%`;
       return;
     }
     const { st, R } = renderView(), pct = R?.render?.pct ?? 0;
     let t = '', cls = '';
     if (st === 'running') t = R.phase === 'checks' ? T('st.pill.checks') : R.phase === 'finish' ? T('st.pill.finish') : R.render?.stage === 'frames' ? T('st.pill.pct', { pct: Math.floor(pct) }) : R.render?.stage === 'encode' ? T('st.pill.encode') : T('st.pill.preparing');
-    else if (st === 'requested' || st === 'preparing') t = T('st.pill.requested');
+    else if (st === 'starting') t = T('st.pill.preparing');
     else if (st === 'blocked' || st === 'failed' || st === 'interrupted') { t = st === 'blocked' ? T('st.pill.blocked') : T('st.pill.failed'); cls = 'fail'; }
     else if (st === 'rendered') { t = T('st.pill.ready'); cls = 'ready'; }
     p.className = t ? `show ${cls}` : '';
@@ -43,8 +40,8 @@
   let rcKey = '';
   // ---------- « Rendu »: one card in every project (user request, 19/10/2026: « je voulais exactement la même interface pour
   // tous les projets : option 1080p, option 4K et un compteur de combien d'images sur combien sont déjà rendues ») ----------
-  // An episode of the Theatre: the render asked here, run by the agent (studio-cli.mjs render: STATUS.render); a project:
-  // its export script, run by the studio (lib/export.mjs: STATUS.export). The same card for both, in this order: what it
+  // Both the Theatre pipeline (STATUS.render) and project export scripts (STATUS.export) run in the studio.
+  // The same card for both, in this order: what it
   // is, the quality (1080p | 4K, then a project's own variants), « Lancer le rendu », then « image 12 345 / 34 019 », the
   // time left and the step; the video made, its folder, the comparison. What does not apply is greyed, with the reason.
   const QKEY = () => `coulisses.quality.${META?.coulisses ?? META?.root ?? META?.episode ?? ''}`;
@@ -70,7 +67,7 @@
     return qs.find((x) => x.id === want && !x.why) ?? qs.find((x) => !x.why) ?? qs[0];
   }
   function setQuality(id) { try { localStorage.setItem(QKEY(), id); } catch { /* private window */ } rcKey = ''; renderRender(); markGo(); }
-  // « Lancer le rendu » in the quality chosen: an episode's render (asked to the agent), a project's export
+  // « Lancer le rendu » starts the selected pipeline directly, for every project.
   const goRender = () => { const x = quality(); if (PROJ) startExportUI(x.send, x.label); else launchRender(); };
   const qLabel = (send) => (send === '4k' ? '4K' : send === '1080p' ? '1080p' : (qualities().find((x) => x.send === send)?.label ?? '1080p'));
   function qualityHtml(locked, running = null) {   // (running: the quality sent of the render going on — the one lit)
@@ -126,7 +123,7 @@
       { n: 4, t: TN('st.steps.reviewX'), body: `<div class="d">${TN('st.steps.reviewXWhat')}</div>`, s: st(3) },
     ]);
   }
-  // an episode's four steps (the agent's: lib/render.mjs), as they were
+  // The Theatre pipeline's four steps; completion is ready for the user's review.
   function episodeSteps(R) {
     const order = ['checks', 'render', 'finish', 'review'], only = R?.only ?? ['checks', 'render', 'finish'];
     const cur = R ? order.indexOf(R.phase === 'done' ? 'review' : R.phase) : -1;
@@ -138,7 +135,7 @@
       if (i > cur) return 'wait';
       if (R.state === 'running') return 'run';
       if (BAD.includes(R.state)) return 'fail';
-      if (k === 'review') return R.state === 'reviewed' ? 'ok' : 'run';
+      if (k === 'review') return ['rendered', 'reviewed'].includes(R.state) ? 'ok' : 'wait';
       return 'ok';
     };
     const chk = R?.checks ?? [], judge = chk.find((c) => c.toJudge)?.toJudge;
@@ -149,7 +146,7 @@
       { n: 1, k: 'checks', t: T('st.steps.checks'), body: checksBody },
       { n: 2, k: 'render', t: T('st.steps.render'), body: barBody() },
       { n: 3, k: 'finish', t: T('st.steps.finish'), body: `<div class="d" id="rcFin">${fin.length && stOf('finish') === 'run' ? esc(finLabel(fin.at(-1).label)) : T('st.steps.finishList')}</div>` },
-      { n: 4, k: 'review', t: T('st.steps.review'), body: `<div class="d">${T('st.steps.reviewWhat')}</div>` },
+      { n: 4, k: 'review', t: TN('st.steps.reviewX'), body: `<div class="d">${TN('st.steps.reviewXWhat')}</div>` },
     ].map((r) => ({ ...r, s: stOf(r.k) })).filter((r) => r.s !== 'skip'));
   }
   function renderRender() {
@@ -167,39 +164,33 @@
     });
     wireSpeed();
   }
-  // ---- an episode of the Theatre: the render, asked here and run by the agent ----
+  // ---- Theatre: the studio runs the export, with no agent hand-off ----
   function episodeCard(box) {
-    const { st, R, req, cur, since } = renderView(), q = quality();
-    const key = JSON.stringify([st, R?.phase, R?.state, R?.startedAt, R?.checks?.map((c) => c.status), R?.finish?.steps?.length, req?.lot, req?.claude?.status,
-      STATUS.compare?.length, since.map((L) => [L.lot, L.claude?.status]), R?.message, STATUS.agent?.watching, cur?.size, q.id]);
+    const { st, R, cur, since } = renderView(), q = quality();
+    const key = JSON.stringify([st, R?.phase, R?.state, R?.startedAt, R?.error, R?.checks?.map((c) => [c.status,c.detail]), R?.finish?.steps?.length,
+      STATUS.compare?.length, since.map((L) => [L.lot, L.claude?.status]), cur?.size, q.id, META.gpu?.mode, META.gpu?.off]);
     if (key === rcKey) { episodeNums(R); return; }
     rcKey = key;
     const done = since.filter((L) => L.claude?.status === 'done').length, open = since.filter((L) => !L.claude || L.claude.status === 'taken').length;
-    const right = st === 'idle' || st === 'requested' ? (cur ? T('st.rc.videoOf', { date: dayTime(cur.mtime) }) : T('st.ex.noVideo')) : st === 'preparing' ? T('st.rc.lot', { lot: req?.lot ?? '' }) : R?.startedAt ? T('st.rc.started', { date: dayTime(R.startedAt) }) : '';
+    const busy = st === 'running' || st === 'starting';
+    const right = busy && R?.startedAt ? T('st.rc.started', { date: dayTime(R.startedAt) })
+      : cur ? T('st.rc.videoOf', { date: dayTime(cur.mtime) }) : T('st.ex.noVideo');
     let h = `<div class="rh">${ic('film')}<b>${T('st.rc.render')}</b><span class="muted">${esc(right)}</span></div>
       <div class="sub2">${since.length ? T('st.rc.since', { n: done, open: open ? T('st.rc.sinceOpen', { k: open }) : '' }) : T('st.rc.sinceNone')}</div>`;
-    const busy = st !== 'idle' && !['failed', 'interrupted', 'cancelled', 'rendered'].includes(st);
-    h += qualityHtml(busy, busy ? (R?.qualite ?? req?.qualite ?? '1080p') : null);
+    h += qualityHtml(busy, st === 'running' ? (R?.qualite ?? '1080p') : null);
     const B = {
-      go: `<button class="primary" id="rcGo">${ic('play')}${T(['failed', 'interrupted', 'cancelled'].includes(st) ? 'st.rc.again' : 'st.rc.go')}</button>`,
+      go: `<button class="primary" id="rcGo">${ic('play')}${T(BAD.includes(st) ? 'st.rc.again' : 'st.rc.go')}</button>`,
       cmp: STATUS.compare?.length ? `<button class="soft" id="rcCmp">${ic('image')}${T('st.rc.compare', { n: STATUS.compare.length })}</button>` : '',
       reveal: cur ? `<button class="soft" id="rcReveal" title="${esc(T('st.rc.revealTitle', { name: cur.name }))}">${ic('folder')}${T('st.rc.reveal')}</button>` : '',
       log: R ? `<button class="soft" id="rcLog">${T('st.rc.log')}</button>` : '',
-      copy: req ? `<button class="soft" id="rcCopy">${ic('copy')}${T('st.lot.copy')}</button>` : '',
-      stop: R?.state === 'running' && R.phase !== 'finish' ? `<button class="soft danger" id="rcStop">${ic('x')}${T('st.rc.stop')}</button>` : '',
+      stop: R?.state === 'running' ? `<button class="soft danger" id="rcStop">${ic('x')}${T('st.rc.stop')}</button>` : '',
     };
-    if (st === 'idle') {
-      if (R?.state === 'reviewed' && R.video?.size === cur?.size) h += `<div class="ok2">${T('st.rc.lastChecked', { msg: R.message ? T('st.rc.lastMsg', { msg: esc(R.message) }) : '' })}</div>`;
-      else if (R && BAD.includes(R.state)) h += `<div class="sub2 muted">${T('st.rc.lastTry', { state: T(R.state === 'cancelled' ? 'st.rc.stoppedWord' : 'st.rc.interruptedWord'), date: dayTime(R.endedAt ?? R.updatedAt) })}</div>`;
-      h += `<div class="acts">${B.go}${B.cmp}${B.reveal}${B.log}</div>`;
-    } else if (st === 'requested') {
-      h += `<div class="sub2"><b>${T('st.rc.render')} ${esc(qLabel(req?.qualite ?? '1080p'))}</b> · ${esc(T('st.rc.requested', { date: dayTime(req.sentAt) }))}</div>
-        <div class="sub2">${STATUS.agent?.watching ? T('st.rc.watching', { name: agentName() }) : T('st.rc.paste', { name: agentName() })}</div>`
-        + `<div class="acts">${B.copy.replace('soft', 'primary')}<button class="soft danger" id="rcWithdraw">${T('st.rc.withdraw')}</button></div>`;
+    if (st === 'starting') h += `<div class="sub2"><span class="spin"></span> ${T('st.pill.preparing')}</div>`;
+    else if (st === 'running') {
+      h += episodeSteps(R) + `<div class="sub2 muted">${TN('st.steps.goesOn')}</div>`;
+      h += `<div class="acts">${B.stop}${B.log}</div>`;
     } else {
-      h += episodeSteps(st === 'preparing' ? null : R);
-      if (st === 'preparing') h += `<div class="sub2">${T('st.rc.preparing')}</div>`;
-      if (st === 'blocked') h += `<div class="err">${esc(R.error ?? T('st.rc.checkFailed'))}${T('st.rc.agentFixes')}</div>`;
+      if (st === 'blocked') h += `<div class="err">${esc(R.error ?? T('st.rc.checkFailed'))}</div>`;
       if (st === 'failed') h += `<div class="err">${esc(R.error ?? T('st.rc.failed'))}</div>`;
       if (st === 'interrupted') h += `<div class="err">${T('st.rc.interrupted')}</div>`;
       if (st === 'cancelled') h += `<div class="sub2">${T('st.rc.cancelled', { date: dayTime(R.endedAt) })}</div>`;
@@ -207,19 +198,13 @@
         const F = R.finish ?? {}, dur = F.duration ? mmss(F.duration).replace(/ 0?(\d+) s$/, ' $1 s') : '';
         h += `<div class="ok2">${T('st.rc.ready', { dur: dur ? ` · ${dur}` : '', lufs: F.loudness?.I != null ? ` · ${dB(F.loudness.I)} LUFS` : '', peak: F.loudness?.peak != null ? T('st.rc.peak', { v: dB(F.loudness.peak) }) : '', remapped: F.remapped != null ? T('st.rc.remapped', { n: F.remapped }) : '' })}</div>`;
       }
-      const again = ['failed', 'interrupted', 'cancelled'].includes(st) ? B.go : '';
-      h += `<div class="acts">${again}${B.stop}${st === 'rendered' ? B.cmp + B.reveal : ''}${st === 'preparing' ? B.copy : ''}${B.log}</div>`;
+      h += `<div class="acts">${B.go}${B.cmp}${B.reveal}${B.log}</div>`;
     }
     box.innerHTML = `<div class="rc">${h}${gpuLine()}${speedBlock()}</div>`;
     wireCard();
     $('#rcGo')?.addEventListener('click', launchRender);
     $('#rcReveal')?.addEventListener('click', () => revealMenu('video'));
-    $('#rcCopy')?.addEventListener('click', () => copy(req.line));
     $('#rcStop')?.addEventListener('click', stopRender);
-    $('#rcWithdraw')?.addEventListener('click', async () => {
-      const r = await postJson('/api/render/withdraw', { lot: req.lot });
-      setSave(r?.ok ? T('st.rc.withdrawn') : T('st.cannot', { why: r?.why ?? T('st.noAnswer') }), r?.ok ? 'ok' : 'err'); statusTxt = '';
-    });
     episodeNums(R);
   }
   function episodeNums(R) {   // the parts of an episode's render that move every few seconds, as before
@@ -234,24 +219,25 @@
   }
   // ---- a project: its export script, run by the studio ----
   function exportCard(box) {
-    const cur = STATUS.video ?? META.render, X = STATUS.export, S2 = STATUS.shot, run = X?.state === 'running', q = quality();
-    const key = JSON.stringify(['export', cur?.size, cur?.mtime, STATUS.compare?.length, X?.state, X?.started, X?.etape, META.gpu?.mode, META.gpu?.off, q.id, CW, CH, FPS,
+    const cur = STATUS.video ?? META.render, X = STATUS.export, S2 = STATUS.shot, run = renderStarting || X?.state === 'running', q = quality();
+    const key = JSON.stringify(['export', renderStarting, cur?.size, cur?.mtime, STATUS.compare?.length, X?.state, X?.started, X?.etape, META.gpu?.mode, META.gpu?.off, q.id, CW, CH, FPS,
       S2?.state, S2?.pct, S2?.etape, S2?.ended, (STATUS.shotTargets ?? META.shotTargets ?? []).map((u) => [u.exists, u.previous])]);
     if (key === rcKey) { exportNums(X); return; }
     rcKey = key;
     // (what it is, and where the video comes from: the title's tip)
     const where = LIVEP() ? (META.exportDir ? T('st.ex.willLoad', { dir: META.exportDir }) : T('st.ex.noDir'))
       : META.kind === 'run' ? T('st.ex.whereRun', { dir: META.exportDir ? T('st.ex.inDir', { dir: META.exportDir }) : '' }) : META.kind === 'aitelier' ? T('st.ex.whereAit') : META.kind === 'video' ? T('st.ex.whereVideo') : T('st.ex.whereFolder');
-    const right = run ? T('st.rc.started', { date: dayTime(X.started) }) : cur ? T('st.rc.videoOf', { date: dayTime(cur.mtime) }) : kindLabel();
+    const right = run && X ? T('st.rc.started', { date: dayTime(X.started) }) : cur ? T('st.rc.videoOf', { date: dayTime(cur.mtime) }) : kindLabel();
     let h = `<div class="rh" title="${esc(where.replace(/<[^>]+>/g, ''))}">${ic('film')}<b>${T('st.rc.render')}</b><span class="muted">${esc(right)}</span></div>
       <div class="sub2">${cur ? T('st.ex.file', { name: esc(cur.name), date: dayTime(cur.mtime), w: CW, h: CH, fps: dec(FPS) }) : LIVEP() ? TN('st.rc.liveCode', { comp: esc(META.composition ?? ''), w: CW, h: CH, fps: dec(FPS) }) : T('st.ex.noVideo')}</div>`;
-    h += shotBlock() + qualityHtml(run, run ? (X.qualite ?? qualities()[0].send) : null);
+    h += shotBlock() + qualityHtml(run, X?.state === 'running' ? (X.qualite ?? qualities()[0].send) : null);
     const can = !qualities().every((x) => x.why), why = META.exportWhy || qualities()[0].why;
     const reveal = X?.state === 'done' && X.file ? `<button class="soft" id="rcReveal" title="${esc(X.file)}">${ic('folder')}${T('st.rc.reveal')}</button>`
       : cur ? `<button class="soft" id="rcReveal" title="${esc(T('st.rc.revealTitle', { name: cur.name }))}">${ic('folder')}${T('st.rc.reveal')}</button>` : '';
     const cmp = STATUS.compare?.length ? `<button class="soft" id="rcCmp">${ic('image')}${T('st.rc.compare', { n: STATUS.compare.length })}</button>` : '';
     const log = X ? `<button class="soft" id="rcLog">${T('st.rc.log')}</button>` : '';
-    if (run) {
+    if (renderStarting) h += `<div class="sub2"><span class="spin"></span> ${T('st.pill.preparing')}</div>`;
+    else if (run) {
       h += exportSteps(X) + `<div class="sub2 muted">${TN('st.steps.goesOn')}</div>`;
       h += `<div class="acts"><button class="soft danger" id="rcStop">${ic('x')}${T('st.rc.stop')}</button>${log}</div>`;
     } else {
@@ -402,13 +388,14 @@
     return `<label class="gpuLine" title="${esc(T('st.ex.gpuTitle'))}"><input type="checkbox" id="exGpu" ${g.off ? '' : 'checked'}> ${g.off ? T('st.ex.gpuAsk') : T('st.ex.gpu', { name: esc(g.name ?? 'GPU') })}</label>`;
   }
   async function startExportUI(qualite, label) {
+    if (renderStarting || STATUS.export?.state === 'running') return;
     const vitesse = exportSpeed();
-    // (the encoder said too: the box is for every project, unticked once it stays so — user report 22/10/2026, an export on
-    // the processor while the card said the GPU: unticked by a click 3 s before)
-    const g = META.gpu, enc = !g ? '' : g.off ? TN('st.ex.confirmCpu') : g.mode !== 'cpu' ? TN('st.ex.confirmGpu', { name: g.name ?? 'GPU' }) : '';
-    if (!confirm(T('st.ex.confirm', { label: TN('st.rc.goQ', { q: label || '1080p' }), title: META.title, dir: META.exportDir ? T('st.ex.confirmDir', { dir: META.exportDir }) : '' }) + enc + (vitesse !== 1 ? T('st.ex.confirmSpeed', { s: speedLabel(vitesse) }) : ''))) return;
-    const r = await postJson('/api/export', { qualite, vitesse });
-    setSave(r?.ok ? T('st.ex.started') : T('st.ex.cannot', { why: r?.why ?? T('st.noAnswer') }), r?.ok ? 'ok' : 'err');
+    renderStarting = true; setTab('lots'); refreshRenderUI();
+    try {
+      const r = await postJson('/api/export', { qualite, vitesse });
+      if (r?.ok && r.state) STATUS.export = r;
+      setSave(r?.ok ? T('st.ex.started') : T('st.ex.cannot', { why: r?.why ?? T('st.noAnswer') }), r?.ok ? 'ok' : 'err');
+    } finally { renderStarting = false; refreshRenderUI(); }
   }
   async function stopExportUI() {
     if (!confirm(T('st.ex.stopConfirm'))) return;
@@ -421,22 +408,19 @@
   }
   const kindLabel = () => (META.kind === 'run' ? T('st.kind.run', { c: META.channel || 'Run' }) : META.kind === 'remotion' ? `${META.channel || T('st.kind.remotion')}${META.features?.video ? '' : T('st.kind.liveCode')}` : META.kind === 'hyperframes' ? `${META.channel ? META.channel + ' · ' : ''}HyperFrames${META.features?.video ? '' : T('st.kind.liveCode')}` : META.kind === 'aitelier' ? `L'AItelier${META.format ? ' · ' + (META.format === 'short' ? 'Short' : T('st.kind.long')) : ''}` : META.kind === 'video' ? T('st.kind.video') : T('st.kind.folder'));
   const postJson = (url, data) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data ?? {}) }).then((r) => r.json()).catch(() => null);
+  function refreshRenderUI() {
+    statusTxt = ''; rcKey = ''; renderRender(); renderPill(); markGo();
+    window.CoulissesOutput?.refresh();
+  }
   async function launchRender() {
-    const d = drafts().length;
-    const open = (STATUS.lots ?? []).filter((L) => L.kind !== 'render' && (!L.claude || L.claude.status === 'taken')).map((L) => L.lot);
-    const msg = [T('st.launch.ask', { ep: META.episode }), '', T('st.launch.what')];
-    if (d) msg.push('', T('st.launch.drafts', { n: d }));
-    if (open.length) msg.push('', T('st.launch.open', { n: open.length, list: open.join(', ') }));
+    if (renderStarting || STATUS.render?.state === 'running') return;
     const vitesse = exportSpeed(), q = quality();
-    msg.push('', TN('st.launch.q', { q: q.label }));
-    if (vitesse !== 1) msg.push('', T('st.launch.speed', { s: speedLabel(vitesse) }));
-    if (!confirm(msg.join('\n'))) return;
-    const r = await postJson('/api/render', { agent: AGENT_PICK, vitesse, qualite: q.send });
-    if (!r?.ok) { setSave(T('st.launch.failed', { why: r?.why ?? T('st.launch.noStudio') }), 'err'); return; }
-    statusTxt = ''; rcKey = '';
-    showDeliveryModal(r.lot, T('st.launch.title', { lot: r.lot }),
-      r.line, T('st.launch.progress'), { updates: r.updates, updatesOk: r.updatesOk });
-    setTab('lots');
+    renderStarting = true; setTab('lots'); refreshRenderUI();
+    try {
+      const r = await postJson('/api/render', { vitesse, qualite: q.send });
+      if (r?.ok && r.state) STATUS.render = r.state;
+      setSave(r?.ok ? T('st.ex.started') : T('st.launch.failed', { why: r?.why ?? T('st.launch.noStudio') }), r?.ok ? 'ok' : 'err');
+    } finally { renderStarting = false; refreshRenderUI(); }
   }
   async function stopRender() {
     if (!confirm(T('st.stop.confirm'))) return;

@@ -12,7 +12,7 @@
 //   reply    <ep> <note id> "<text>" [--status done|open|working] [--image f]… [--no-images]
 //   done     <ep> <lot> "<summary>" [--declined]      (on a render request: I have watched the new video)
 //   render   <ep> [<lot>] [--only checks,render,finish] [--frames a-b] [--out f.mp4]
-//                                      the full re-render asked from the tool (run in the background): the five checks,
+//                                      legacy explicit render (the app starts its own detached worker): the five checks,
 //                                      npx remotion render, finish-render.sh; progress in revue/render.json (lib/render.mjs)
 //   undo     <ep> <lot> [--redo]
 //   updates  <ep> [--agent claude|codex]   what may need updating on the agent's side (Remotion, skills): checked
@@ -307,8 +307,12 @@ async function main() {
     }
     case 'done': {
       const n = +rest[0], L = readLot(P, n); if (!L) die(t('cli.noLot', { n }));
-      const mf = finish(P, n);
+      const mf = L.kind === 'render' ? null : finish(P, n);
       const r = changeReplies((r) => {
+        if (r.lots[n]?.managedBy === 'studio-render' || r.lots[n]?.status === 'superseded') {
+          throw new Error(lang() === 'fr' ? 'Cette ancienne demande a été remplacée par un rendu lancé dans MStudio. Sa progression est gérée par le logiciel.'
+            : 'This historical request was replaced by a render started in MStudio. The application manages its progress.');
+        }
         const at = nowIso();
         r.lots[n] = { status: flags['--declined'] ? 'declined' : 'done', at, message: rest[1] ?? '', files: mf ? mf.files.filter((x) => x.changed).map((x) => x.rel) : [] };
         for (const e of L.edits) { const x = r.notes[e.id]; if (x?.status === 'working') { x.status = 'open'; x.statusAt = at; } }   // never left « en cours »
@@ -321,6 +325,13 @@ async function main() {
       if (!B) die(t('cli.noRender'));
       const n = rest[0] ? +rest[0] : null, L = n ? readLot(P, n) : null;
       if (n && !L) die(t('cli.noLot', { n }));
+      // A historical request replaced by the user's direct export must never
+      // launch a duplicate, even after that export has finished.
+      const receipt = n ? replies().lots?.[n] : null;
+      if (receipt?.managedBy === 'studio-render' || receipt?.status === 'superseded') {
+        die(lang() === 'fr' ? 'Cette ancienne demande a été remplacée par un rendu lancé dans MStudio. Le rendu appartient à l’utilisateur ; ne pas le relancer depuis ce lot.'
+          : 'This historical request was replaced by a render started in MStudio. The user controls rendering; do not restart it from this batch.');
+      }
       const only = String(flag('--only', PHASES.join(','))).split(',').map((x) => x.trim()).filter((x) => PHASES.includes(x));
       if (!only.length) die(`--only : ${PHASES.join(', ')}`);
       if (n) changeReplies((r) => { if (!r.lots[n]) r.lots[n] = { status: 'taken', at: nowIso() }; });

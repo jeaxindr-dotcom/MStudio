@@ -46,7 +46,7 @@ Si la demande indique que les images sont en préparation, lance la commande `CL
 
 ## Les mises à jour, vérifiées à chaque envoi
 
-À chaque lot (et à chaque demande de rendu), le studio vérifie ce qui peut être mis à jour du côté de l'agent. Le résultat est la section « Mises à jour (vérifiées à l'envoi) » du `.md`, et l'utilisateur en voit le résumé dans la fenêtre d'envoi. On y trouve :
+À chaque lot de corrections, le studio vérifie ce qui peut être mis à jour du côté de l'agent. Un rendu lancé par l'utilisateur ne déclenche pas cette vérification. Le résultat est la section « Mises à jour (vérifiées à l'envoi) » du `.md`, et l'utilisateur en voit le résumé dans la fenêtre d'envoi. On y trouve :
 
 - **Remotion** (un épisode) : la version installée dans le projet, comparée à la dernière sur npm.
 - **Les skills de l'agent installés par l'outil `skills`** (`~/.agents/.skill-lock.json`), comparés à leur source sur GitHub. Pour Codex, cela couvre ses deux dossiers, `~/.codex/skills` et `~/.agents/skills`.
@@ -122,20 +122,15 @@ Depuis le 09/10/2026, MStudio relit aussi les projets **HyperFrames** (une vidé
 - **Je n'exporte jamais.** L'utilisateur lance l'export depuis MStudio (bouton Exporter : `hyperframes render`, dans `renders\`). Le studio charge seul la nouvelle vidéo à la fin.
 - **Rien n'est installé ni mis à jour** sans l'accord de l'utilisateur, ni l'outil HyperFrames ni ses skills (l'accueil a un bouton « Mises à jour » pour cela).
 
-## Une demande de rendu
+## Le rendu appartient à l'utilisateur
 
-Le bouton « Lancer le rendu » de l'onglet Envois envoie une **demande de rendu** : c'est un lot sans modif (`"kind": "render"`). Elle arrive comme les autres : par la ligne collée `MStudio · E03 · rendu (lot N) → …`, ou par `wait`, qui imprime alors « DEMANDE DE RENDU (lot N) REÇUE ». Son `.md` dit ce que le rendu emporte, c'est-à-dire les lots envoyés depuis la vidéo actuelle, avec leur état et les fichiers touchés. Il signale aussi si le moteur a changé.
+Dans **tous les projets**, y compris Brambleshire, le bouton « Lancer le rendu » démarre l'export dans MStudio. Il ne crée pas de lot destiné à l'agent et n'attend ni `take`, ni `render`, ni `done`. L'utilisateur choisit la qualité et lance, arrête ou relance son rendu depuis le logiciel.
 
-1. `CLI take E03 <lot>`. Le studio affiche « L'agent prépare le rendu ».
-2. Terminer d'abord les lots encore ouverts. Si le moteur a changé (`src/engine`, `src/cardboard`, `Episode.tsx`, composant partagé), lancer aussi les trois tests de non-régression (étape 4 du skill).
-3. `CLI render E03 <lot>` **en tâche de fond** (Bash `run_in_background`). La commande enchaîne :
-   - les cinq contrôles automatiques (profondeur, visages masqués, paysages au sol, musique, sauts). Si l'un échoue, elle s'arrête avant le rendu en disant lequel : corriger, puis relancer la même commande ;
-   - le rendu Remotion, avec la commande de l'étape 6 du skill (Chrome, `--gl=angle`, `--concurrency=6`), vers `out/<enn>-raw.mp4` ;
-   - `scripts/finish-render.sh` : mixage final, plan du rendu, notes recalées, chapitres. Pendant ce temps, chaque studio ouvert sur l'épisode libère la vidéo (`/api/hold`), puis la reprend et se recharge seul.
+Pour Brambleshire, MStudio exécute les contrôles automatiques, le rendu Remotion puis `scripts/finish-render.sh` (mixage final, plan du rendu, recalage des notes et chapitres). La progression et les erreurs sont affichées dans le logiciel et conservées dans `revue/render.json` et `revue/render.log`. La vidéo est disponible dès la fin de l'export, sans validation obligatoire par l'agent.
 
-   L'avancement est écrit dans `revue/render.json`, la sortie complète dans `revue/render.log`. Le studio affiche les étapes, l'image en cours, le temps restant et le volume final.
-4. À la fin, la commande imprime le volume. Vérifier Integrated ≈ −16 LUFS et True peak ≤ −1,0 dBTP, puis **regarder la vidéo entière**, comme à l'étape 6 du skill.
-5. `CLI done E03 <lot> "<ce que j'ai vu>"`. Le studio affiche « Rendu vérifié par l'agent », et propose « Comparer avant / après » : pour chaque note corrigée, l'image du lot (ancien rendu) face à la même image dans la nouvelle vidéo.
+L'agent reste chargé des corrections demandées et des tests de non-régression de ses modifications. Il ne démarre pas de second export parce qu'un ancien lot `"kind": "render"` existe. Si un contrôle d'export échoue, il peut corriger le problème à la demande de l'utilisateur ; c'est ensuite l'utilisateur qui relance. Ne pas modifier le code ou les médias utilisés par un rendu en cours.
+
+Une vérification visuelle par l'agent peut être demandée séparément ; elle ne bloque pas la livraison du fichier. Les anciennes commandes CLI de rendu restent des outils de compatibilité, à utiliser seulement sur demande explicite de l'utilisateur.
 
 À savoir :
 

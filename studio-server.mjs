@@ -7,8 +7,8 @@
 //   - /api/send  : the pending edits become a batch revue/lots/NNN.{json,md} (+ images); the page shows the line to paste
 //                  in the Claude session (or the session watching with `studio-cli.mjs wait` picks it up by itself)
 //   - /api/undo  : « Annuler / Rétablir cette correction » from the snapshots Claude took (revue/runs/NNN/)
-//   - /api/render: « Lancer le rendu » = a render request for the Claude session (lot of kind 'render'); its progress is
-//                  revue/render.json, written by `studio-cli.mjs render`; /api/hold and /api/unhold let go of the video
+//   - /api/render: « Lancer le rendu » starts a detached render owned by the application; its progress is
+//                  revue/render.json; /api/hold and /api/unhold let go of the video
 //                  while finish-render.sh replaces it; /api/compare = the before / after of each corrected note
 //   - /api/export : « Exporter » a run of a Remotion pipeline (.coulisses) with the project's own export script, on the
 //                  user's order (lib/export.mjs); /api/export/stop, /api/export/log
@@ -28,9 +28,10 @@ import { videoFrame, codeFrame, codeSignature, sweepStaleTemp } from './lib/fram
 import { reviewFrameCache } from './lib/frame-cache.mjs';
 import { parseThumbnailRequest, thumbnailSource, createTimelineThumbnails } from './lib/timeline-thumbnails.mjs';
 import crypto from 'node:crypto';
-import { createLot, resumeLotCaptures, readLot, lotNumbers, saveLotUpdates, lotsSummary, signalLot, connectLine, MAX_EDITS, createRenderLot, withdrawRenderLot, compareItems, CLI as CLI_FILE } from './lib/lots.mjs';
+import { createLot, resumeLotCaptures, readLot, lotNumbers, saveLotUpdates, lotsSummary, signalLot, connectLine, MAX_EDITS, withdrawRenderLot, compareItems, CLI as CLI_FILE } from './lib/lots.mjs';
 import { speedState, startSpeedCopy, stopSpeedCopy, speedLog } from './lib/speed-copy.mjs';
 import { renderState, renderFiles } from './lib/render.mjs';
+import { startRender } from './lib/render-launch.mjs';
 import { exportAvailable, exportState, startExport, stopExport, exportLog, exportOptions, exportOptionsReady, downloadableExport } from './lib/export.mjs';
 import { shotTargets, shotState, startShot, stopShot, undoShot, shotLog } from './lib/shot-render.mjs';
 import { listRuns, step } from './lib/runs.mjs';
@@ -1080,8 +1081,9 @@ const server = http.createServer(async (req, res) => {
     if (pn === '/api/updates') { const u = await updatesFor(url.searchParams.get('agent'), url.searchParams.has('fresh')); return json(res, { line: u.line, ok: u.ok, md: u.updates ? updatesMarkdown(u.updates, { cli: `node "${CLI_FILE}"`, target: P.target }).join('\n') : '', ...u.updates }); }
     // ---- « Exporter » a run of a Remotion pipeline: the project's script, started here, on the user's order ----
     if (pn === '/api/export' && req.method === 'POST') {
-      if (!XP) return json(res, { ok: false, why: t('srv.exportOnly') });
       const b = JSON.parse((await body(req)).toString('utf8') || '{}');
+      if (B) { try { return json(res,{ok:true,state:startRender(P,{qualite:b.qualite ?? '1080p',vitesse:b.vitesse ?? 1,log})}); } catch(e) { return json(res,{ok:false,why:e.message}); } }
+      if (!XP) return json(res, { ok: false, why: t('srv.exportOnly') });
       exportFrom = codePlan();   // (the plan of the video this export makes: the code's now)
       try { return json(res, { ok: true, ...startExport(P, { qualite: b.qualite ?? null, vitesse: b.vitesse ?? 1, log }) }); } catch (e) { return json(res, { ok: false, why: e.message }); }
     }
@@ -1098,25 +1100,22 @@ const server = http.createServer(async (req, res) => {
     }
     if (pn === '/api/speed/stop' && req.method === 'POST') { try { return json(res, { ok: true, ...stopSpeedCopy(P, { log }) }); } catch (e) { return json(res, { ok: false, why: e.message }); } }
     if (pn === '/api/speed/log') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(speedLog(P)); }
-    if (pn === '/api/export/stop' && req.method === 'POST') {
+    if (pn === '/api/export/stop' && req.method === 'POST' && !B) {
       try { return json(res, { ok: true, ...stopExport(P, { log }) }); } catch (e) { return json(res, { ok: false, why: e.message }); }
     }
-    if (pn === '/api/export/log') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' }); return res.end(XP ? exportLog(P) : ''); }
-    // ---- the full re-render (asked here, run by Claude: studio-cli.mjs render) ----
+    if (pn === '/api/export/log' && !B) { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' }); return res.end(XP ? exportLog(P) : ''); }
+    // ---- the full re-render, launched by the user and owned by MStudio ----
     if (pn.startsWith('/api/render') && pn !== '/api/render/log' && !B) return json(res, { ok: false, why: t('lot.err.noRender') });
     if (pn === '/api/render' && req.method === 'POST') {
       const b = JSON.parse((await body(req)).toString('utf8') || '{}');
-      if (renderState(P)?.state === 'running') return json(res, { ok: false, why: t('lot.err.renderRunning') });
-      const u = await updatesFor(b.agent);
-      let r; try { r = await oneLotAtATime(() => createRenderLot(P, b, { updates: u.updates, agent: u.agent })); } catch (e) { return json(res, { ok: false, why: e.message }); }
-      log(t('srv.renderSent', { lot: r.lot, md: r.md }));
-      return json(res, { ok: true, ...r, agent: agentState(), updates: u.line, updatesOk: u.ok });
+      try { return json(res,{ok:true,state:startRender(P,{qualite:b.qualite ?? '1080p',vitesse:b.vitesse ?? 1,log})}); }
+      catch(e) { return json(res,{ok:false,why:e.message}); }
     }
     if (pn === '/api/render/withdraw' && req.method === 'POST') {
       const b = JSON.parse((await body(req)).toString('utf8'));
       try { withdrawRenderLot(P, +b.lot); log(t('srv.renderWithdrawn', { lot: b.lot })); return json(res, { ok: true }); } catch (e) { return json(res, { ok: false, why: e.message }); }
     }
-    if (pn === '/api/render/stop' && req.method === 'POST') {
+    if ((pn === '/api/render/stop' || (B && pn === '/api/export/stop')) && req.method === 'POST') {
       const running = renderState(P);
       if (running?.state !== 'running') return json(res, { ok: false, why: t('srv.noRender') });
       if (MSTUDIO && !isOwnStudio(running)) return json(res, {ok: false, why: 'Ce rendu appartient à une autre instance.'}, 409);
@@ -1124,7 +1123,7 @@ const server = http.createServer(async (req, res) => {
       log(t('srv.stopAsked'));
       return json(res, { ok: true });
     }
-    if (pn === '/api/render/log') {
+    if (pn === '/api/render/log' || (B && pn === '/api/export/log')) {
       let txt = ''; try { txt = fs.readFileSync(renderFiles(P).LOG, 'utf8'); } catch { /* no render yet */ }
       const NOISE = /X4000|^Copying public dir|^Bundling \d|^Rendered \d|^Encoded \d/;
       const lines = txt.replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n|\r/).filter((l) => l.trim() && !NOISE.test(l));

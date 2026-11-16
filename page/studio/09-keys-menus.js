@@ -203,7 +203,7 @@
     const r = await postJson('/api/verify');
     const b = d?.querySelector('.body'); if (b) b.textContent = r ? `${r.file ?? ''}\n\n${r.out ?? r.why ?? ''}`.trim() : T('st.noAnswer');
   }
-  const renderBusy = () => { const s = renderView().st; return !['idle', 'failed', 'interrupted', 'cancelled'].includes(s); };
+  const renderBusy = () => renderStarting || STATUS.render?.state === 'running';
   const sendWhy = () => (sending ? T('menu.why.sending') : !drafts().length ? T('menu.why.noDraft') : $('#qsend').disabled ? T('menu.why.emptyDraft') : false);
   function mountMenus() {
     if (!window.MenuBar) return;
@@ -249,13 +249,13 @@
         { id: 'freeCam', label: () => T(staging && D2() ? 'st.bar.cam2d' : 'st.bar.cam'), key: () => SC.show('freeCam'), disabled: () => (stageWhy() ?? (staging ? false : T('menu.why.notStaging'))), run: toggleFreeCam },
         { id: 'source', label: T('menu.source'), key: () => SC.show('source'), disabled: () => srcWhy() ?? false, run: () => { if (staging) setStaging(false); setMode(mode === 'video' ? 'code' : 'video'); } },
         { id: 'grade', label: () => T(CG.on ? 'menu.gradeOff' : 'menu.grade'), key: () => SC.show('gradePage'), run: () => setPage(CG.on ? 'review' : 'grade') },
-        // « Exporter ▸ »: a run's export script (its variants), an episode's full render (asked to the agent), else nothing
+        // « Exporter ▸ »: the selected pipeline is started by the studio.
         { id: 'export', label: T('menu.export'), disabled: () => (LIVEP() ? (!META.features?.export ? (META.exportWhy ?? T('menu.why.notRemotion')) : STATUS.export?.state === 'running' ? T('menu.why.exportRunning') : false)
           : !PROJ ? (renderBusy() ? T('menu.why.renderBusy') : false) : T('menu.why.noExport')),
           // (the same in every project: « Lancer le rendu en 1080p », « … en 4K », then a project's own variants)
           items: () => qualities().map((x) => ({ id: `render-${x.id}`, label: ['1080p','4K'].includes(x.label) ? TN('st.rc.goQ', { q: x.label }) : x.label, disabled: () => x.why || false, run: () => { setQuality(x.id); goRender(); } })) },
         { id: 'stopExport', label: T('menu.stopExport'), disabled: () => (PROJ ? (STATUS.export?.state === 'running' ? false : T('menu.why.noExportRunning'))
-          : (STATUS.render?.state === 'running' && STATUS.render.phase !== 'finish' ? false : T('menu.why.noRenderRunning'))), run: () => (PROJ ? stopExportUI() : stopRender()) },
+          : (STATUS.render?.state === 'running' ? false : T('menu.why.noRenderRunning'))), run: () => (PROJ ? stopExportUI() : stopRender()) },
         { id: 'compare', label: T('menu.compare'), disabled: () => (STATUS.compare?.length ? false : T('menu.why.noCompare')), run: () => openCompare() },
         '-',
         { id: 'updates', label: T('menu.updates'), run: checkUpdatesMenu },
@@ -285,7 +285,7 @@
   // Same two entry points in every project. Rendering uses the project's existing
   // backend. Export also offers the original file when it is already on disk.
   const goKind = () => (!META ? null : !PROJ ? 'render' : LIVEP() && META.features?.export ? 'export' : null);
-  const goBusy = () => (goKind() === 'render' ? (renderBusy() ? T('menu.why.renderBusy') : null) : STATUS.export?.state === 'running' ? T('menu.why.exportRunning') : null);
+  const goBusy = () => (goKind() === 'render' ? (renderBusy() ? T('menu.why.renderBusy') : null) : renderStarting || STATUS.export?.state === 'running' ? T('menu.why.exportRunning') : null);
   function markGo() {
     window.CoulissesOutput?.refresh();
   }

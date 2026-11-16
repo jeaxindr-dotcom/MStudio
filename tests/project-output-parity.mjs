@@ -47,10 +47,13 @@ try {
   assert.equal(await read('requests.length'),0);pass('Une vidéo importée explique le rendu indisponible et livre le fichier original exact, avec son nom Unicode');
   const ep=path.join(tmp,'episodes','E03 - Exemple');makeDir(path.join(ep,'revue'));fs.copyFileSync(file,path.join(ep,'E03 - Exemple.mp4'));
   await open(['E03','--theatre',tmp,'--episodes',path.dirname(ep)],'fr');await click('#hdrExport');
-  assert.match(await read("document.querySelector('#outputWhy').textContent"),/agent/);
+  assert.match(await read("document.querySelector('#outputWhy').textContent"),/MStudio lance/);
   assert.ok(await read("document.querySelector('#outputDownload').hasAttribute('href')"));
   await click('#outputRender');await browser.until("requests.some(x=>x.url==='/api/render')");
-  assert.equal(await read("requests[0].data.qualite"),'1080p');pass('Épisode Brambleshire : export du fichier disponible et demande de rendu au service de l’agent sur action explicite');
+  assert.equal(await read("requests[0].data.qualite"),'1080p');
+  assert.equal(await read("Object.hasOwn(requests[0].data, 'agent')"),false);
+  assert.equal(await read("confirms.length"),0);
+  pass('Épisode Brambleshire : export du fichier disponible et démarrage direct du rendu sur action explicite');
   const engine=path.dirname(modules), src=path.join(engine,'src');
   for(const d of [src,path.join(engine,'scripts'),path.join(engine,'public')])makeDir(d);
   if(remotionModules()){

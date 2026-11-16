@@ -19,7 +19,7 @@
     return Object.hasOwn(STATUS,'video') ? STATUS.video : META?.render;
   }
   function renderInfo(kind) {
-    if (kind === 'render') return tr('Le rendu de cet épisode est confié à l’agent.','The agent runs this episode’s render.');
+    if (kind === 'render') return tr('MStudio lance les contrôles, le rendu et la finition de cet épisode.','MStudio starts this episode’s checks, render and finishing.');
     if (kind === 'export') return META.kind === 'hyperframes'
       ? tr('HyperFrames calcule la vidéo de cette composition.','HyperFrames renders this composition to video.')
       : tr('Le script d’export du projet calcule la vidéo de cette composition Remotion.','The project export script renders this Remotion composition to video.');
