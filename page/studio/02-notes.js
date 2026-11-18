@@ -183,17 +183,23 @@
   async function attach(files, target) {
     files = [...files].filter((f) => f && f.type.startsWith('image/'));
     if (!files.length) return;
-    let n = target.kind === 'new' ? null : byId(target.id);
-    if (!n) { M.pause(); n = addNote(curFrame(), null, false); if (!n) return; target = { kind: 'note', id: n.id }; }
+    if (target.kind === 'new') {
+      M.pause();
+      const created = addNote(curFrame(), null, false); if (!created) return;
+      target = {kind:'note', id:created.id};
+    }
+    if (!byId(target.id)) return;
     setSave(files.length > 1 ? T('st.img.uploadMany', { n: files.length }) : T('st.img.uploadOne'));
     try {
       for (const f of files) {
-        const file = await upload(f, n.id);
+        const file = await upload(f, target.id);
+        const n = byId(target.id);
+        if (!n) { setSave(T('st.img.failed'), 'err'); return; }
         if (target.kind === 'reply') (pending[n.id] ??= { text: '', images: [] }).images.push({ file, at: now() });
-        else (n.images ??= []).push({ file, at: now() });
+        else { (n.images ??= []).push({ file, at: now() }); n.updated = now(); save(); }
       }
-      sel = n.id;
-      if (target.kind !== 'reply') { n.updated = now(); save(); } else setSave(T('st.img.ready'), 'ok');
+      sel = target.id;
+      if (target.kind === 'reply') setSave(T('st.img.ready'), 'ok');
       renderAll();
     } catch (e) { setSave(T('st.img.failed'), 'err'); }
   }
@@ -281,7 +287,7 @@
   };
 
   // ---------- saving ----------
-  let saveT = null, saving = false, dirty = false;
+  let saveT = null, saving = null, dirty = false;
   const setSave = (txt, cls) => { const s = $('#save'); s.textContent = txt; s.className = cls || ''; };
   // the notes file as the server last gave or took it (studio-server.mjs readNotes): its revision goes with each save, a
   // save on an older one (another tab saved since) comes back 409 with the notes as they are now — merged (mergeNotes),
@@ -423,29 +429,45 @@
     setSave(T(dir === 'undo' ? 'st.undo.done' : 'st.redo.done', { what: step.label, key: window.Shortcuts?.show(dir === 'undo' ? 'redo' : 'undo') ?? '' }), 'ok');
   }
   window.__undo = { state: () => ({ back: HIST.back.length, fwd: HIST.fwd.length, top: HIST.back.at(-1)?.label ?? null }) };   // for tests
-  async function flush() {
-    if (saving) { saveT = setTimeout(flush, 300); return; }
-    if (!NOTES_OK) { setSave(T('st.save.notLoaded') === 'st.save.notLoaded' ? (FR ? 'Notes non lues : rien n’est enregistré (Fichier › Actualiser)' : 'Notes not read: nothing is saved (File › Reload)') : T('st.save.notLoaded'), 'err'); return; }
-    saving = true; dirty = false;
+  function flush() {
+    if (saving) return saving;
+    if (!NOTES_OK) { setSave(T('st.save.notLoaded') === 'st.save.notLoaded' ? (FR ? 'Notes non lues : rien n’est enregistré (Fichier › Actualiser)' : 'Notes not read: nothing is saved (File › Reload)') : T('st.save.notLoaded'), 'err'); return Promise.resolve(false); }
+    if (!dirty) return Promise.resolve(true);
+    saving = writeNotes().then(ok => {
+      if (dirty) {
+        clearTimeout(saveT);
+        saveT = setTimeout(flush, ok ? 400 : 3000);
+      }
+      return ok;
+    }).finally(() => { saving = null; });
+    return saving;
+  }
+  async function writeNotes() {
+    dirty = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       for (let tries = 0; ; tries++) {
-        const r = await fetch('/api/notes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: payload() });
+        const sentIds = new Set(notes.map(n => n.id));
+        const r = await fetch('/api/notes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: payload(), signal: controller.signal });
         if (r.status === 409 && tries < 3) {   // another tab saved since: its notes and these, merged, then saved again
           const cur = (await r.json()).current;
-          const merged = mergeNotes(notes, cur?.notes ?? []);
+          if (!Array.isArray(cur?.notes) || cur.rev === undefined) throw new Error('Invalid notes conflict');
+          const merged = mergeNotes(notes, cur.notes);
           rebaseNoteHistory(notes, merged);
           notes = merged; NOTES_REV = cur?.rev; HIST.last = JSON.stringify(notes); renderAll();
           continue;
         }
         if (!r.ok) throw new Error(await r.text());
-        const res = await r.json().catch(() => ({}));
+        const res = await r.json();
         if (res.rev !== undefined) NOTES_REV = res.rev;
-        NOTES_KNOWN = new Set(notes.map((n) => n.id)); NOTES_LAST_SAVE = Date.now();
+        NOTES_KNOWN = sentIds; NOTES_LAST_SAVE = Date.now();
         break;
       }
       setSave(T('st.save.saved', { t: hm5(new Date()) }), 'ok');
-    } catch (e) { dirty = true; setSave(T('st.save.failed'), 'err'); clearTimeout(saveT); saveT = setTimeout(flush, 3000); }   // (tried again, not only at the next change)
-    saving = false;
+      return true;
+    } catch { dirty = true; setSave(T('st.save.failed'), 'err'); return false; }
+    finally { clearTimeout(timeout); }
   }
   // what is typed but lives only in this page (an answer being written under a note, the request to the agent, the words
   // under the queue): kept for this tab when the page goes (a reload by the agent — new video, first export —, Fichier ›
@@ -453,14 +475,23 @@
   const draftKey = () => `coulisses-drafts:${META?.notesFile ?? location.port}`;
   const draftEndpoint = '/api/app-update-draft';
   let updateDraft = null, updateDraftTimer, typingTimer;
+  let draftsRestored = false;
   function draftSnapshot() {
     const d = {pending:{}, agent:$('#agentText')?.value ?? '', words:$('#qwords')?.value ?? ''};
     for (const [id, p] of Object.entries(pending)) if (p?.text?.trim() || p?.images?.length) d.pending[id] = p;
     return (Object.keys(d.pending).length || d.agent.trim() || d.words.trim()) ? d : null;
   }
   function keepDrafts() {
-    const draft = draftSnapshot();
-    try { if (draft) sessionStorage.setItem(draftKey(), JSON.stringify(draft)); else sessionStorage.removeItem(draftKey()); } catch { /* private window */ }
+    let draft = draftSnapshot();
+    try {
+      if (!draftsRestored) {
+        if (!draft) return true;
+        const previous = JSON.parse(sessionStorage.getItem(draftKey()) || 'null');
+        if (previous) draft = {pending: {...previous.pending, ...draft.pending}, agent: draft.agent || previous.agent, words: draft.words || previous.words};
+      }
+      if (draft) sessionStorage.setItem(draftKey(), JSON.stringify(draft)); else sessionStorage.removeItem(draftKey());
+      return true;
+    } catch { return !draft; }
   }
   function applyDraft(d) {
     if (!d) return;
@@ -508,6 +539,7 @@
     try {
       applyDraft(JSON.parse(sessionStorage.getItem(draftKey()) || 'null')); sessionStorage.removeItem(draftKey());
     } catch { /* private window */ }
+    draftsRestored = true;
     if (!META?.hasUpdateDraft) return;
     try {
       const record = await draftRequest();
@@ -556,11 +588,28 @@
   };
   // a reload asked by the page itself (a new video, the first export, the language, Fichier › Actualiser): only once the
   // notes are saved — never over changes the server did not take (they would be lost); false: not reloaded, said
-  async function reloadSafely(f = curFrame()) {
-    if (NOTES_OK && !(await flushNow())) { setSave(T('st.save.failed'), 'err'); return false; }   // (notes never read: nothing of them to lose — Actualiser is the way out)
-    keepDrafts(); location.hash = `f=${f}`; location.reload(); return true;
+  let reloadPending = null;
+  function reloadSafely(f = FRAMES > 0 ? curFrame() : null) {
+    return reloadPending ??= (async () => {
+      if (popFor && (popFor.mark?.strokes?.length || $('#popTx')?.value.trim())) {
+        setSave(FR ? 'Choisis « Ajouter » ou « Annuler » dans l’annotation avant d’actualiser.' : 'Choose Add or Cancel in the open annotation before reloading.', 'err');
+        return false;
+      }
+      if ((dirty || saving) && !(await flushNow())) { setSave(T('st.save.failed'), 'err'); return false; }
+      if (!keepDrafts()) { setSave(T('common.appUpdate.storeDrafts'), 'err'); return false; }
+      // Changing location.hash starts a navigation that can cancel the reload in WebView2.
+      if (Number.isFinite(f)) history.replaceState(history.state, '', `#f=${Math.round(f)}`);
+      location.reload(); return true;
+    })().finally(() => { reloadPending = null; });
   }
-  async function flushNow() { clearTimeout(saveT); while (saving) await new Promise((r) => setTimeout(r, 50)); if (dirty) await flush(); return !dirty && NOTES_OK; }
+  async function flushNow() {
+    clearTimeout(saveT);
+    // A new edit can arrive during the first write. All waiters join its follow-up write too.
+    for (let attempt = 0; attempt < 2 && (saving || dirty); attempt++) {
+      if (!(await flush())) return false;
+    }
+    return !dirty && !saving && NOTES_OK;
+  }
   // leaving with changes not saved yet: sent on the way out when small enough (the browser refuses a keepalive body over
   // 64 KB — a page with drawn or graded notes is larger), else the browser asks to stay while the save runs
   window.addEventListener('beforeunload', (e) => {

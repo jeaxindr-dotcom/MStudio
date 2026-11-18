@@ -129,7 +129,13 @@
   function hubFrame(q = '') {
     let f = $('#hubOv');
     if (f && q) { f.remove(); f = null; }   // a menu of the home screen asked from here (« Ouvrir un projet… »): that page
-    if (!f) { f = document.createElement('iframe'); f.id = 'hubOv'; f.title = T('common.productName'); f.src = META.hub + q; document.body.appendChild(f); }
+    if (!f) {
+      f = document.createElement('iframe'); f.id = 'hubOv'; f.title = T('common.productName'); f.src = META.hub + q;
+      f.addEventListener('load', () => {
+        if (f.classList.contains('on')) f.contentWindow?.postMessage({ coulisses: 'shown' }, new URL(f.src).origin);
+      });
+      document.body.appendChild(f);
+    }
     return f;
   }
   function toHub(q = '') {
@@ -211,7 +217,11 @@
       { id: 'file', label: T('menu.file'), items: [
         { id: 'home', label: T('menu.home'), disabled: noHub, run: () => toHub() },
         // (user request 17/10/2026: from an iPad through a remote desktop, no F5): the page read again, its notes saved first
-        { id: 'reload', label: T('menu.reload'), run: () => reloadSafely() },
+        { id: 'reload', label: T('menu.reload'), key: 'F5', run: () => {
+          if (!hubOpen()) return reloadSafely();
+          const f = $('#hubOv');
+          f.contentWindow.postMessage({ coulisses: 'reload' }, new URL(f.src).origin);
+        } },
         { id: 'newProject', label: T('menu.newProject'), key: () => SC.show('newProject'), disabled: noHub, run: () => toHub('?menu=new') },
         { id: 'open', label: T('menu.open'), key: () => SC.show('open'), disabled: noHub, run: () => toHub('?menu=open') },
         { id: 'importFolder', label: T('menu.importFolder'), disabled: noHub, run: () => toHub('?menu=folder') },

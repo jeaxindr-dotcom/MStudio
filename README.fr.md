@@ -6,6 +6,8 @@ Le bouton **Lancer le rendu** démarre l’export dans le logiciel pour tous les
 
 **[Télécharger MStudio pour Windows x64](https://github.com/jeaxindr-dotcom/MStudio/releases/latest)** · [English](README.md)
 
+**F5** ou **Fichier › Actualiser la page** recharge la vue affichée. Dans le studio, tu retrouves l’image en cours et tes messages en brouillon après l’actualisation.
+
 ## Partir d’une vidéo
 
 | Action dans la bibliothèque | Ce que tu peux modifier | Ce qui alimente le rendu |
@@ -21,7 +23,7 @@ Sur [l’animation de Lucas Vieira publiée dans le domaine public](https://comm
 
 ## Installer et ouvrir
 
-Pour une première installation, télécharge et lance `MStudio-Setup-0.2.12-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
+Pour une première installation, télécharge et lance `MStudio-Setup-0.2.13-win-x64.exe` dans les versions publiées. Il installe MStudio pour l’utilisateur courant, avec Node, FFmpeg, FFprobe et le moteur Remotion. Codex CLI est distinct et n’est requis que pour la reconstruction automatique. L’installateur n’est pas signé numériquement. Les projets compatibles gardent l’extension `.coulisses` ; les bibliothèques et installations de MStudio et de Coulisses restent indépendantes.
 
 Pour les versions suivantes, clique sur **Mise à jour** dans la bibliothèque ou dans un projet ouvert. Une fois le téléchargement vérifié, choisis **Redémarrer pour installer maintenant** ou **Installer à la prochaine ouverture**. **Annuler** ferme la fenêtre et conserve le téléchargement.
 

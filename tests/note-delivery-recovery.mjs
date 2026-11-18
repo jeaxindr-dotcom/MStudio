@@ -107,6 +107,26 @@ test('Recovery waits until the current send has returned and notes are loaded', 
   vm.runInContext('sending=false',c);assert.equal(c.reconcilePublishedNotes(),true);
 });
 
+test('A stalled POST times out and a subsequent receipt confirms only the submitted text', async () => {
+  for (const edited of [false, true]) {
+    const {c} = fixture([note()], []);
+    let timer, cleared;
+    Object.assign(c, {AbortController, FR:true, AGENT_PICK:'agent', FPS:30, CW:1920, CH:1080,
+      setTimeout:callback => { timer = callback; return 1; }, clearTimeout:() => { cleared = true; },
+      fetch:(_url, {signal}) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)))});
+    const request = c.postNotes(c.notes, '', {});
+    timer();
+    await assert.rejects(request, /Confirmation en attente/);
+    assert.ok(cleared);
+    assert.equal(c.notes[0].draft, true);
+    if (edited) c.notes[0].text = 'Edited while waiting';
+    c.STATUS.lots = [lot()];
+    c.reconcilePublishedNotes();
+    assert.equal(c.notes[0].draft, edited);
+    assert.equal(c.notes[0].lot, 1);
+  }
+});
+
 test('The direct response acknowledges unchanged content with its original publication time', () => {
   const {c} = fixture();
   const content=c.deliveryContent(c.notes[0]);

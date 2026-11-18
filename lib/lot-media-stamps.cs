@@ -11,6 +11,10 @@ using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
 public static class LotMediaStamps {
+    private sealed class ChangedAfterSend : IOException {
+        public ChangedAfterSend(string path) : base("Source modifiée depuis l’envoi des notes : " + path) {}
+    }
+    private static long cutoff = Int64.MaxValue;
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security,
         uint disposition, uint flags, IntPtr template);
@@ -29,6 +33,8 @@ public static class LotMediaStamps {
                     if (name != "." && name != ".." && !cache) {
                         string path = Path.Combine(dir, name);
                         var flags = (FileAttributes)Marshal.ReadInt32(record, 56);
+                        if (Marshal.ReadInt64(record, 24) >= cutoff || Marshal.ReadInt64(record, 32) >= cutoff)
+                            throw new ChangedAfterSend(path);
                         // Le client Node traverse lui-même les liens imbriqués via realpath, avec détection des cycles.
                         if ((flags & FileAttributes.ReparsePoint) != 0) throw new NotSupportedException("REPARSE");
                         else if ((flags & FileAttributes.Directory) != 0) children.Add(path);
@@ -68,7 +74,20 @@ public static class LotMediaStamps {
         }
     }
     public static int Main(string[] roots) {
-        try { Console.WriteLine(Fingerprint(roots)); return 0; }
-        catch (Exception e) { Console.Error.WriteLine(e.Message); return 1; }
+        try {
+            if (roots.Length > 0 && roots[0].StartsWith("--since=", StringComparison.Ordinal)) {
+                long ms = Int64.Parse(roots[0].Substring(8));
+                cutoff = checked(116444736000000000L + (ms + 1) * 10000);
+                roots = new List<string>(roots).GetRange(1, roots.Length - 1).ToArray();
+            }
+            Console.WriteLine(Fingerprint(roots)); return 0;
+        } catch (Exception e) {
+            var parallel = e as AggregateException;
+            Exception changed = e as ChangedAfterSend;
+            if (parallel != null) foreach (var error in parallel.Flatten().InnerExceptions)
+                if (error is ChangedAfterSend) { changed = error; break; }
+            Console.OutputEncoding = new UTF8Encoding(false);
+            Console.Error.WriteLine((changed ?? e).Message); return changed == null ? 1 : 2;
+        }
     }
 }

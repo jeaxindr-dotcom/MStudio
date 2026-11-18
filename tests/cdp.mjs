@@ -40,8 +40,8 @@ function sweepProfiles() {
 // args: more flags for this Chrome (a fake microphone: --use-fake-device-for-media-stream…, tests/dictate.mjs)
 // autoplay: 'free' (the Coulisses window: --autoplay-policy=no-user-gesture-required, app/Launcher.cs) or 'tab' (a studio opened
 // in a tab of a normal Chrome: sound and play only after a click — user report 24/10/2026, tests/sound-tab.mjs)
-export async function launch({ port = 9333, headless = true, args = [], autoplay = 'free' } = {}) {
-  await waitForRenderIdle();
+export async function launch({ port = 9333, headless = true, args = [], autoplay = 'free', renderActivityPorts } = {}) {
+  await waitForRenderIdle({ports:renderActivityPorts});
   sweepProfiles();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-cdp-'));
   const chrome = spawn('C:/Program Files/Google/Chrome/Application/chrome.exe', [

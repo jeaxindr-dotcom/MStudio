@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { waitForRenderIdle } from '../lib/render-activity.mjs';
 import { createLot, resumeLotCaptures, readLot, lotNumbers } from '../lib/lots.mjs';
+import { captureWorkspace } from '../lib/lot-capture-workspace.mjs';
 
 const test = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(test), '..', '.cache', 'reprise-envoi');
@@ -75,4 +76,32 @@ assert.equal(incomplete.captureState.status, 'error');
 assert.ok(fs.existsSync(incomplete.edits[0].captures.image));
 assert.ok(incomplete.edits[1].captures.error);
 assert.equal(incomplete.edits[1].captures.image, undefined);
-console.log('2 ok, 0 ko');
+// The receipt and input manifest exist before any code snapshot is taken.
+// An immediate retry is the same batch. A later revision cannot masquerade
+// as the original screenshot, even when the capture starts after the retry.
+const remotionDir = path.join(run, 'remotion');
+fs.mkdirSync(remotionDir);
+const entry = path.join(remotionDir, 'index.js');
+fs.writeFileSync(entry, 'original');
+const codeProject = {...p, kind:'remotion', remotionDir, remotion:{entree:entry, composition:'Test'}};
+fs.writeFileSync(p.NOTES, JSON.stringify({notes:[{id:'code', frame:8, source:'code', text:'Review this frame'}]}));
+const body = {ids:['code']};
+const receipt = await createLot(codeProject, body, {deferred:true});
+const pending = readLot(p, receipt.lot);
+const work = captureWorkspace(pending.captureState.id);
+assert.equal(JSON.parse(fs.readFileSync(path.join(work, 'sources.json'))).codePendingSince, receipt.sentAt);
+assert.deepEqual(pending.edits[0].captures, {});
+fs.writeFileSync(entry, 'new revision');
+const later = new Date(Date.parse(receipt.sentAt) + 1000);
+fs.utimesSync(entry, later, later);
+assert.equal((await createLot(codeProject, body, {deferred:true})).lot, receipt.lot);
+let changed;
+for (let i = 0; i < 100; i++) {
+  changed = readLot(p, receipt.lot);
+  if (changed.captureState.status !== 'pending') break;
+  await sleep(100);
+}
+assert.match(changed.captureState.error, /modifiée depuis l’envoi/);
+assert.equal(changed.edits[0].text, 'Review this frame');
+assert.equal(changed.edits[0].captures.image, undefined);
+console.log('3 ok, 0 ko');

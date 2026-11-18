@@ -119,6 +119,13 @@
       bar.appendChild(b);
     });
   }
+  // WebView2 also calls this when keyboard focus is inside the preview.
+  window.MStudioRefreshPage = () => {
+    leaveBar();
+    const reload = MENUS.find(menu => menu.id === 'file')?.items.find(item => item.id === 'reload');
+    if (reload) return reload.run();
+    location.reload(); // The page may still be starting, or may have failed to mount.
+  };
   // a click anywhere else closes the menus
   document.addEventListener('mousedown', (e) => { altAlone = false; if (!bar) return; if (!e.target.closest?.('.mb-menu') && !e.target.closest?.('#menubar')) leaveBar(); }, true);
   window.addEventListener('wheel', () => { altAlone = false; }, { capture: true, passive: true });   // Alt+wheel zooms the timeline
@@ -126,6 +133,11 @@
   window.addEventListener('resize', () => closeAll());
   // the keyboard: captured before the page's own shortcuts while the bar has it
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'F5' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat) window.MStudioRefreshPage();
+      return;
+    }
     if (!bar) return;
     const dl = document.querySelector('.mb-dlg');
     if (dl) {   // a dialog of the bar has the keyboard: Escape closes it, the page's shortcuts wait

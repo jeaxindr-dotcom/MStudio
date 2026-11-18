@@ -6,6 +6,8 @@ A Windows desktop studio for editing videos made with Remotion. Review a composi
 
 **[Download MStudio for Windows x64](https://github.com/jeaxindr-dotcom/MStudio/releases/latest)** · [Français](README.fr.md)
 
+Press **F5** or choose **File › Reload the page** to refresh the current view. In the studio, the playhead returns to the same frame and your unsent messages are restored.
+
 ## Use a video as a starting point
 
 | Library action | What you can edit | What the export uses |
@@ -21,7 +23,7 @@ Tested with [Lucas Vieira’s public-domain animation](https://commons.wikimedia
 
 ## Windows installation
 
-For a first installation, download and run `MStudio-Setup-0.2.12-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
+For a first installation, download and run `MStudio-Setup-0.2.13-win-x64.exe` from Releases. It installs for the current user and includes Node, FFmpeg, FFprobe and the Remotion engine. Codex CLI is separate and is only required for the automatic agent path. The installer is not digitally signed. Existing Coulisses installations and libraries are independent; compatible projects keep their `.coulisses` extension.
 
 For subsequent versions, click **Update** in the library or an open project. Once the download is verified, choose **Restart and install now** or **Install next time MStudio opens**. **Cancel** dismisses the dialog and keeps the downloaded installer.
 

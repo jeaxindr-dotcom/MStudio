@@ -3,6 +3,7 @@
 // so they share their names as the one inline script did; hence the two-space indent.
   // ---------- pending edits -> Claude ----------
   let sending = false;
+  const awaitingDelivery = new Map();
   // Publishing a batch and receiving its HTTP response are separate events. A
   // lost response must not keep an already delivered annotation in the queue.
   // Only a published batch containing this ID is evidence of delivery; an agent
@@ -44,13 +45,19 @@
   function reconcilePublishedNotes() {
     if (!NOTES_OK || sending) return false;
     const receipts = new Map();
+    let changed = false;
     for (const n of notes) {
       const receipt = publishedDraft(n);
       if (!receipt) continue;
-      applyDelivery(n, receipt); receipts.set(n.id, receipt);
+      const attempted = awaitingDelivery.get(n.id);
+      awaitingDelivery.delete(n.id);
+      changed = true;
+      if (attempted === undefined) applyDelivery(n, receipt);
+      else if (!confirmDelivery(n.id, attempted, receipt)) continue;
+      receipts.set(n.id, receipt);
     }
-    if (!receipts.size) return false;
-    rebaseDeliveryHistory(receipts);
+    if (!changed) return false;
+    if (receipts.size) rebaseDeliveryHistory(receipts);
     persist();
     return true;
   }
@@ -73,6 +80,28 @@
     applyDelivery(n, receipt);
     return true;
   }
+  async function postNotes(items, words, marks) {
+    const content = new Map(items.map(n => [n.id, deliveryContent(n)]));
+    for (const [id, value] of content) awaitingDelivery.set(id, value);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const r = await fetch('/api/send', {method:'POST', signal:controller.signal, headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ids:items.map(n => n.id), words, marks, agent:AGENT_PICK, fps:FPS, size:[CW, CH]})});
+      if (!r.ok) throw new Error(await r.text());
+      const res = await r.json();
+      if (!res?.ok || !Number.isSafeInteger(res.lot) || res.lot < 1) throw new Error(T('st.send.emptyAnswer'));
+      const receipt = {lot:res.lot, sentAt:res.sentAt ?? now()};
+      for (const [id, value] of content) {
+        confirmDelivery(id, value, receipt);
+        awaitingDelivery.delete(id);
+      }
+      return res;
+    } catch (err) {
+      if (controller.signal.aborted) throw new Error(FR ? 'Confirmation en attente. Les notes sont conservées. Tu peux réessayer.' : 'Waiting for confirmation. Your notes are saved. You can retry.');
+      throw err;
+    } finally { clearTimeout(timer); }
+  }
   function renderQueue() {
     const d = drafts();
     $('#qcnt').textContent = MAXQ ? `${d.length} / ${MAXQ}` : String(d.length); $('#qcnt').classList.toggle('full', !!MAXQ && d.length >= MAXQ);
@@ -84,8 +113,9 @@
   }
   async function sendQueue() {
     const d = drafts(); if (!d.length || sending) return;
-    sending = true; renderQueue();
+    sending = true;
     try {
+      renderQueue();
       if (!(await flushNow())) throw new Error(T('st.send.notSaved'));
       // Saving may merge another tab and replace note objects. Capture exactly
       // the current version the server is about to put into the batch.
@@ -93,14 +123,9 @@
       const marks = {}, cnv = document.createElement('canvas'); cnv.width = CW; cnv.height = CH;
       const num = new Map(reviewed().map((n, i) => [n.id, i + 1]));
       for (const n of d) if (n.mark) { const g = cnv.getContext('2d'); g.clearRect(0, 0, CW, CH); paintMark(g, n.mark, String(num.get(n.id)), 1, '#b49cff'); marks[n.id] = cnv.toDataURL('image/png'); }
-      const content = new Map(d.map(n => [n.id, deliveryContent(n)]));
-      const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: d.map((n) => n.id), words: $('#qwords').value, marks, agent: AGENT_PICK, fps: FPS, size: [CW, CH] }) });
-      const res = r.ok ? await r.json() : null;
-      if (!res?.ok) throw new Error(r.ok ? T('st.send.emptyAnswer') : await r.text());
-      const receipt = { lot: res.lot, sentAt: res.sentAt ?? now() };
-      for (const n0 of d) confirmDelivery(n0.id, content.get(n0.id), receipt);
+      const res = await postNotes(d, $('#qwords').value, marks);
       // the send before had failed on the way: that batch, its images made again; already handled by the agent: said, no window
-      if (res.again === 'done') { HIST.back = []; HIST.fwd = []; HIST.last = null; $('#qwords').value = ''; save(); setTab('lots'); setSave(T('st.send.againDone', { lot: res.lot }), 'ok'); sending = false; renderAll(); return; }
+      if (res.again === 'done') { HIST.back = []; HIST.fwd = []; HIST.last = null; $('#qwords').value = ''; save(); setTab('lots'); setSave(T('st.send.againDone', { lot: res.lot }), 'ok'); return; }
       if (res.again) setTimeout(() => setSave(T('st.send.again', { lot: res.lot }), 'ok'), 1800);
       HIST.back = []; HIST.fwd = []; HIST.last = null;   // a batch sent is not taken back with Ctrl+Z
       if (d.some((n) => n.stage)) setTimeout(() => setSave(T('st.send.offsets'), 'ok'), 1600);
@@ -109,7 +134,7 @@
         res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId });
       setTab('lots');
     } catch (e) { setSave(T('st.send.failed', { msg: e.message }), 'err'); }
-    sending = false; renderAll();
+    finally { sending = false; reconcilePublishedNotes(); renderAll(); }
   }
   $('#qsend').onclick = sendQueue;
 
@@ -129,17 +154,14 @@
       n = { id: parallax ? parallaxId : uid(), kind: 'prompt', frame: curFrame(), end: null, text, images: [], thread: [], status: 'open', created: now(), render: META.render, draft: true, source: mode };
       stamp(n); notes.push(n);
     }
-    sending = true; $('#agentSend').disabled = true;
-    if (!parallax && !options.retry) ta.value = '';
-    persist(); renderAgent();
+    sending = true;
     try {
+      $('#agentSend').disabled = true;
+      if (!parallax && !options.retry) ta.value = '';
+      persist(); renderAgent();
       if (!(await flushNow())) throw new Error(T('st.send.notSaved'));
       n = byId(n.id) ?? n;
-      const content = deliveryContent(n);
-      const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [n.id], words: '', marks: {}, agent: AGENT_PICK, fps: FPS, size: [CW, CH] }) });
-      const res = r.ok ? await r.json() : null;
-      if (!res?.ok) throw new Error(r.ok ? T('st.send.emptyAnswer') : await r.text());
-      confirmDelivery(n.id, content, { lot: res.lot, sentAt: res.sentAt ?? now() });
+      const res = await postNotes([n], '', {});
       n = byId(n.id) ?? n; HIST.back = []; HIST.fwd = []; HIST.last = null; persist();
       if (parallax) setSave((FR ? 'Demande enregistrée · lot ' : 'Request saved · batch ') + res.lot, 'ok');
       else if (!res.agent?.watching) showDeliveryModal(res.lot, T('st.ag.sentTitle', { lot: res.lot }), res.line, T('st.send.saved', { md: res.md }), { updates: res.updates, updatesOk: res.updatesOk, pendingUpdatesId: res.pendingUpdatesId });
@@ -149,7 +171,8 @@
       // The composer may already contain the user's next message.
       setSave(T('st.send.failed', { msg: e.message }), 'err');
     }
-    sending = false; $('#agentSend').disabled = false; renderAll(); return !n.draft;
+    finally { sending = false; $('#agentSend').disabled = false; reconcilePublishedNotes(); renderAll(); }
+    return !byId(n.id)?.draft;
   }
   let agentSig = '';
   function renderAgent() {

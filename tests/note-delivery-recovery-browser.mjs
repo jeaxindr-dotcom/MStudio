@@ -115,6 +115,28 @@ try {
   assert.ok(writes.length>=2);
   assert.ok(!page.logs.some(s=>s.includes('[exception]')),page.logs.join('\n'));
   check('Only a newer published lot acknowledges the requeue; both recoveries persist without resending');
+
+  // An open context menu survives a 409 and the ensuing replacement of the card.
+  // Keep typing into that note, then use the already-open menu to move its start.
+  const remoteMessage = {id:'other-tab',at:time(45),text:'Message enregistré dans un autre onglet'};
+  stored.find(note => note.id === 'unsent').thread.push(remoteMessage);
+  revision++;
+  await page.eval(`const card = document.querySelector('.card[data-id="unsent"]');
+    const field = card.querySelector('textarea.main');
+    field.value = 'Texte avant synchronisation'; field.dispatchEvent(new Event('input'));
+    card.querySelector('.more').click();`);
+  await page.until(`__deliveryProbe().notes.find(n => n.id === 'unsent').thread.some(m => m.id === 'other-tab')`,6000);
+  await page.eval(`const field = document.querySelector('.card[data-id="unsent"] textarea.main');
+    field.value += ' et après'; field.dispatchEvent(new Event('input'));
+    const start = [...document.querySelectorAll('#menu.open button')].find(b => b.textContent.includes('Début = image actuelle'));
+    start.click();`);
+  await page.until(`__deliveryProbe().notes.find(n => n.id === 'unsent').frame === 0`,2500);
+  for (let i=0; i<40 && stored.find(n=>n.id==='unsent').frame!==0; i++) await new Promise(resolve=>setTimeout(resolve,100));
+  const edited = stored.find(n=>n.id==='unsent');
+  assert.equal(edited.frame,0);
+  assert.equal(edited.text,'Texte avant synchronisation et après');
+  assert.deepEqual(edited.thread,[remoteMessage]);
+  check('Editing and moving a card through an open menu after a 409 persist its text, position and the remote reply');
 } finally {
   await page?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
 }

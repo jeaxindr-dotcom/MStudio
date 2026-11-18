@@ -50,6 +50,13 @@ function externalProject() {
     exports.bundle = async (o) => {
       if (o.enableCaching || o.symlinkPublicDir || fs.readdirSync(o.publicDir).length) throw Error('Cache ou public non isolé.');
       const graph = fs.readFileSync(path.join(path.dirname(o.entryPoint), 'couleurs.js'), 'utf8');
+      if (o.webpackOverride) {
+        const plugin = o.webpackOverride({plugins:[]}).plugins[0];
+        plugin.apply({hooks:{done:{tap:(_name, fn) => fn({compilation:{
+          fileDependencies:new Set([o.entryPoint,path.join(path.dirname(o.entryPoint),'couleurs.js')]),
+          contextDependencies:new Set()
+        }})}}});
+      }
       fs.mkdirSync(o.outDir, {recursive: true});
       fs.writeFileSync(path.join(o.outDir, 'index.html'), graph, {flag:'wx'});
     };`);
@@ -182,4 +189,107 @@ test('le grand inventaire repère le remplacement d’une dépendance et ignore 
   await checkLotSources(sources, 'code');
   fs.writeFileSync(dependency, 'BBBB'); fs.utimesSync(dependency, time, time);
   await assert.rejects(() => checkLotSources(sources, 'code'), /média/i);
+});
+
+const tick = () => new Promise(resolve => setTimeout(resolve, 30));
+test('la préparation différée refuse les modifications antérieures à la copie, même à date d’écriture rétablie', async () => {
+  for (const rel of ['src/index.ts', 'public/files/photo.jpg', 'node_modules/module/moteur.js']) {
+    const {p, file, dir} = fixture();
+    const target = file(rel, 'AAAA');
+    if (rel.startsWith('node_modules')) for (let i=0; i<170; i++) file('node_modules/module/entree-' + i + '.js');
+    const time = fs.statSync(target).mtime;
+    const sentAt = new Date().toISOString();
+    await tick(); fs.writeFileSync(target, 'BBBB'); fs.utimesSync(target, time, time);
+    await assert.rejects(() => freezeLotSources(p, {code:true, dir, sentAt}), /depuis l’envoi/);
+  }
+});
+
+test('les builds Remotion et profils Chromium restent hors des sources, y compris à travers les jonctions du public', async () => {
+  for (const kind of ['brambleshire','remotion']) {
+    const {p, file, root, dir} = fixture(); p.kind = kind;
+    const build = path.dirname(file('build-preview/index.html')); file('build-preview/bundle.js');
+    const profile = path.dirname(file('profile-preview/Local State'));
+    file('profile-preview/Default/Network/Cookies','fixture'); file('public/picture.jpg','picture');
+    fs.symlinkSync(build, path.join(root, 'public', 'cached'), 'junction');
+    fs.symlinkSync(profile, path.join(root, 'public', 'browser'), 'junction');
+    fs.symlinkSync(path.join(profile, 'Default', 'Network'), path.join(root, 'public', 'network'), 'junction');
+    await tick();
+    const s = await freezeLotSources(p, {code:true, dir, sentAt:new Date().toISOString()});
+    const pub = path.join(s.remotionDir, 'public');
+    assert.deepEqual(fs.readdirSync(pub), ['picture.jpg']);
+    assert.ok(!fs.existsSync(path.join(s.remotionDir,'build-preview')));
+    assert.ok(!fs.existsSync(path.join(s.remotionDir,'profile-preview')));
+    await checkLotSources(s,'code');
+  }
+});
+
+test('une entrée déclarée parmi des fichiers de même nom qu’un build reste disponible', async () => {
+  const {p, file, dir} = fixture(); p.remotion.entree = file('livre/main.js','source');
+  file('livre/index.html'); file('livre/bundle.js');
+  await tick();
+  const s = await freezeLotSources(p, {code:true, dir, sentAt:new Date().toISOString()});
+  assert.equal(fs.readFileSync(s.remotion.entree,'utf8'), 'source');
+});
+
+test('deux lots peuvent utiliser les mêmes médias de l’épisode montés sous public et ignorer ses dossiers de revue', async () => {
+  const {p, root, base, file} = fixture(), episode = path.join(base, 'episode-media');
+  const review = path.join(episode,'revue'), another = path.join(episode,'revue-alternative');
+  fs.mkdirSync(review,{recursive:true}); fs.mkdirSync(another);
+  fs.writeFileSync(path.join(review,'notes.json'),'{}');
+  fs.writeFileSync(path.join(another,'projet.json'),'{}'); fs.writeFileSync(path.join(another,'studio.lock.json'),'{}');
+  const media = path.join(episode,'photo.jpg'); fs.writeFileSync(media,'image');
+  fs.writeFileSync(path.join(episode,'cadre.json'),'{}');
+  file('public/menu.json','{}');
+  for (const alias of ['episode-media','episode']) fs.symlinkSync(episode,path.join(root,'public',alias),'junction');
+  p.exportRule = {dossiers:[root,episode]}; p.REVUE = review;
+  await tick();
+  const before = fs.statSync(media,{bigint:true}).ctimeNs, sentAt = new Date().toISOString(); await tick();
+  fs.writeFileSync(path.join(review,'notes.json'),'{"notes":[]}');
+  const jobs = await Promise.all(['prive1','prive2'].map(d=>freezeLotSources(p,{code:true,dir:path.join(base,d),sentAt})));
+  assert.equal(fs.statSync(media,{bigint:true}).ctimeNs,before);
+  for (const job of jobs) {
+    for (const alias of ['episode-media','episode']) assert.deepEqual(fs.readdirSync(path.join(job.remotionDir,'public',alias)).sort(),['cadre.json','photo.jpg']);
+    await checkLotSources(job,'code');
+  }
+});
+
+test('la capture différée valide les imports réellement compilés depuis une entrée externe', async () => {
+  const {p,dir,base,outside} = externalProject();
+  await tick();
+  let sentAt = new Date().toISOString();
+  const sources = await freezeLotSources(p, {code:true, dir, sentAt});
+  assert.equal(fs.readFileSync(path.join(sources.lotPrebuiltBundle, 'index.html'), 'utf8'), 'bleu');
+  sentAt = new Date().toISOString(); await tick();
+  fs.writeFileSync(path.join(outside,'couleurs.js'), 'rouge');
+  await assert.rejects(() => freezeLotSources(p, {code:true, dir:path.join(base,'prive2'), sentAt}), /depuis l’envoi.*couleurs/);
+});
+
+test('deux lots sur un gros média isolé utilisent un lien dur certifié et refusent toute autre version', async () => {
+  const {p, dir, base, file} = fixture(), media = file('film.mp4', 'fixture');
+  const realStat = fs.statSync, realLink = fs.symlinkSync, realHardLink = fs.linkSync, inode = realStat(media,{bigint:true}).ino;
+  try {
+    fs.statSync = function(name,...args) {
+      const result = realStat(name,...args);
+      if (result.ino === inode && args[0]?.bigint) result.size = 513n * 1024n * 1024n;
+      return result;
+    };
+    fs.symlinkSync = function(source,dest,type) {
+      if (type === 'file') throw Object.assign(new Error('indisponible'), {code:'EPERM'});
+      realLink(source,dest,type);
+    };
+    await tick();
+    const sentAt = new Date().toISOString();
+    fs.linkSync = () => { throw Object.assign(new Error('autre volume'), {code:'EXDEV'}); };
+    await assert.rejects(() => freezeLotSources(p, {code:true, dir, sentAt}), /lien dur \(EXDEV\)/);
+    fs.linkSync = realHardLink; await tick();
+    const lots = await Promise.all(['a','b'].map(name => freezeLotSources(p,{code:true,dir:path.join(base,name),sentAt})));
+    for (const source of lots) {
+      assert.equal(realStat(path.join(source.remotionDir,'film.mp4'),{bigint:true}).ino,inode);
+      await checkLotSources(source,'code');
+    }
+    const time = realStat(media).mtime;
+    await tick(); fs.writeFileSync(media,'changed'); fs.utimesSync(media,time,time);
+    for (const source of lots) await assert.rejects(() => checkLotSources(source,'code'), /média/);
+    await assert.rejects(() => freezeLotSources(p,{code:true,dir:path.join(base,'c'),sentAt}), /depuis l’envoi/);
+  } finally { fs.statSync = realStat; fs.symlinkSync = realLink; fs.linkSync = realHardLink; }
 });

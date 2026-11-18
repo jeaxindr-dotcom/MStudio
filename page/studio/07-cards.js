@@ -114,38 +114,52 @@
     if (loopId === n.id) el.querySelector('.loop')?.classList.add('on');
     el.addEventListener('mousedown', (e) => { if (sel !== n.id && !e.target.closest('.more')) { sel = n.id; document.querySelectorAll('.card').forEach((c) => c.classList.toggle('sel', c.dataset.id === sel)); draw(); drawOv(); renderInspector(); } });
     el.querySelectorAll('img[data-full]').forEach((im) => im.addEventListener('click', () => openLightbox(im.dataset.full)));
+    // A revision conflict or Undo can replace the note while a field or its menu still has an event to deliver.
+    const noteId = n.id;
+    const onNote = (action) => (event) => {
+      const current = byId(noteId);
+      if (current) return action(current, event);
+    };
     const ta = el.querySelector('textarea.main');
-    ta.addEventListener('input', () => { n.text = ta.value; n.updated = now(); save(); if (n.draft) renderQueue(); });
+    const editText = (current) => { current.text = ta.value; current.updated = now(); save(); if (current.draft) renderQueue(); };
+    ta.addEventListener('input', onNote(editText));
     // Entrée valide la note, Maj+Entrée va à la ligne (user request, 09/10/2026): the field lets go, the keys are the
     // studio's again (Espace, N…); the Enter of a Japanese or Chinese input, which confirms its characters, stays its own
-    ta.addEventListener('keydown', (e) => { if (!enterKey(e)) return; e.preventDefault(); n.text = ta.value; n.updated = now(); save(); ta.blur(); });   // the save says « Enregistré »
-    el.querySelectorAll('.mainimgs .x').forEach((b, k) => b.addEventListener('click', () => { n.images.splice(k, 1); n.updated = now(); save(); renderAll(); }));
-    el.querySelector('.f0').addEventListener('change', (e) => { setFrames(n, +e.target.value, n.end); save(); renderAll(); seekFrame(n.frame); });
-    el.querySelector('.f1')?.addEventListener('change', (e) => { setFrames(n, n.frame, +e.target.value); save(); renderAll(); seekFrame(n.end ?? n.frame); });
-    el.querySelector('.dn').addEventListener('change', (e) => { n.status = e.target.checked ? 'done' : 'open'; n.statusAt = now(); save(); renderAll(); });   // (unticked: red again, its validation gone)
+    ta.addEventListener('keydown', onNote((current, e) => { if (!enterKey(e)) return; e.preventDefault(); editText(current); ta.blur(); }));
+    el.querySelectorAll('.mainimgs .x').forEach((b, k) => {
+      const file = n.images[k].file;
+      b.addEventListener('click', onNote((current) => {
+        const index = current.images.findIndex(img => img.file === file);
+        if (index < 0) return;
+        current.images.splice(index, 1); current.updated = now(); save(); renderAll();
+      }));
+    });
+    el.querySelector('.f0').addEventListener('change', onNote((n, e) => { setFrames(n, +e.target.value, n.end); save(); renderAll(); seekFrame(n.frame); }));
+    el.querySelector('.f1')?.addEventListener('change', onNote((n, e) => { setFrames(n, n.frame, +e.target.value); save(); renderAll(); seekFrame(n.end ?? n.frame); }));
+    el.querySelector('.dn').addEventListener('change', onNote((n, e) => { n.status = e.target.checked ? 'done' : 'open'; n.statusAt = now(); save(); renderAll(); }));   // (unticked: red again, its validation gone)
     // « Valider » (user request, 18/10/2026): the user saw the fix — green; again: back to blue, « corrigée »
-    el.querySelector('.vf')?.addEventListener('click', () => { n.status = sk === 'ok' ? 'done' : 'verified'; n.statusAt = now(); save(); renderAll(); });
-    el.querySelector('.go').addEventListener('click', () => { sel = n.id; M.pause(); seekFrame(n.frame); renderAll(); });
-    el.querySelector('.play')?.addEventListener('click', () => { sel = n.id; loopId = null; seekFrame(n.frame); stopAt = n.end; M.play(); renderAll(); });
-    el.querySelector('.loop')?.addEventListener('click', () => { sel = n.id; loopId = loopId === n.id ? null : n.id; stopAt = null; if (loopId) { seekFrame(n.frame); M.play(); } renderAll(); });
+    el.querySelector('.vf')?.addEventListener('click', onNote(n => { n.status = stateOf(n) === 'ok' ? 'done' : 'verified'; n.statusAt = now(); save(); renderAll(); }));
+    el.querySelector('.go').addEventListener('click', onNote(n => { sel = n.id; M.pause(); seekFrame(n.frame); renderAll(); }));
+    el.querySelector('.play')?.addEventListener('click', onNote(n => { sel = n.id; loopId = null; seekFrame(n.frame); stopAt = n.end; M.play(); renderAll(); }));
+    el.querySelector('.loop')?.addEventListener('click', onNote(n => { sel = n.id; loopId = loopId === n.id ? null : n.id; stopAt = null; if (loopId) { seekFrame(n.frame); M.play(); } renderAll(); }));
     el.querySelector('.img').addEventListener('click', () => pick({ kind: 'note', id: n.id }));
     el.querySelector('.more').addEventListener('click', (e) => {
       const items = [
         ...(STATUS.compare?.includes(n.id) ? [{ icon: 'image', label: T('st.menu.compare'), run: () => openCompare(n.id) }, '-'] : []),
-        { icon: 'start', label: T('st.menu.start'), run: () => { setFrames(n, curFrame(), n.end); save(); renderAll(); } },
-        { icon: 'end', label: isR ? T('st.menu.end') : T('st.menu.rangeTo'), run: () => { setFrames(n, n.frame, curFrame()); save(); renderAll(); } },
-        ...(isR ? [{ icon: 'point', label: T('st.menu.single'), run: () => { setFrames(n, n.frame, null); save(); renderAll(); } }] : []),
-        ...(n.mark ? [{ icon: 'x', label: T('st.menu.clearGesture'), run: () => { delete n.mark; delete n.target; n.updated = now(); save(); renderAll(); } }] : []),
-        ...(!n.draft ? ['-', { icon: 'repeat', label: T('st.menu.resend'), run: () => { if (queueFull()) return; n.draft = true; n.updated = n.draftQueuedAt = now(); if (fixedOf(n)) { n.status = 'open'; n.statusAt = n.updated; } save(); setTab('queue'); renderAll(); showCard(n.id); } }] : []),
+        { icon: 'start', label: T('st.menu.start'), run: onNote(n => { setFrames(n, curFrame(), n.end); save(); renderAll(); }) },
+        { icon: 'end', label: isR ? T('st.menu.end') : T('st.menu.rangeTo'), run: onNote(n => { setFrames(n, n.frame, curFrame()); save(); renderAll(); }) },
+        ...(isR ? [{ icon: 'point', label: T('st.menu.single'), run: onNote(n => { setFrames(n, n.frame, null); save(); renderAll(); }) }] : []),
+        ...(n.mark ? [{ icon: 'x', label: T('st.menu.clearGesture'), run: onNote(n => { delete n.mark; delete n.target; n.updated = now(); save(); renderAll(); }) }] : []),
+        ...(!n.draft ? ['-', { icon: 'repeat', label: T('st.menu.resend'), run: onNote(n => { if (n.draft || queueFull()) return; n.draft = true; n.updated = n.draftQueuedAt = now(); if (fixedOf(n)) { n.status = 'open'; n.statusAt = n.updated; } save(); setTab('queue'); renderAll(); showCard(n.id); }) }] : []),
         '-',
-        { icon: 'trash', label: n.draft ? T('st.menu.removeEdit') : T('st.menu.deleteNote'), danger: true, run: () => { if ((n.draft && !n.text.trim() && !n.images?.length) || confirm(n.draft ? T('st.menu.removeEditConfirm') : T('st.menu.deleteNoteConfirm'))) delNote(n.id); } },
+        { icon: 'trash', label: n.draft ? T('st.menu.removeEdit') : T('st.menu.deleteNote'), danger: true, run: onNote(n => { if ((n.draft && !n.text.trim() && !n.images?.length) || confirm(n.draft ? T('st.menu.removeEditConfirm') : T('st.menu.deleteNoteConfirm'))) delNote(n.id); }) },
       ];
       openMenu(e.currentTarget, items);
     });
     const box = el.querySelector('.repbox');
     if (box) {
       const rt = box.querySelector('textarea.rep');
-      const send = () => sendNoteReply(byId(n.id) ?? n);
+      const send = onNote(sendNoteReply);
       rt.addEventListener('input', () => { (pending[n.id] ??= { text: '', images: [] }).text = rt.value; });
       rt.addEventListener('keydown', (e) => { if (enterKey(e) || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); send(); } });   // Entrée envoie, Maj+Entrée va à la ligne
       box.querySelectorAll('.repimgs .x').forEach((b, k) => b.addEventListener('click', () => { pending[n.id].images.splice(k, 1); renderAll(); }));

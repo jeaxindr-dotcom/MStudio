@@ -20,8 +20,8 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("MStudio")]
 [assembly: AssemblyProduct("MStudio")]
 [assembly: AssemblyDescription("Montage et revue de projets Remotion")]
-[assembly: AssemblyVersion("0.2.12.0")]
-[assembly: AssemblyFileVersion("0.2.12.0")]
+[assembly: AssemblyVersion("0.2.13.0")]
+[assembly: AssemblyFileVersion("0.2.13.0")]
 [assembly: Guid("1832da9f-bb81-469a-8b74-87bb72e405a6")]
 
 static class MStudioProgram
@@ -391,6 +391,15 @@ sealed class StudioWindow : Form, IUpdateWindow
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.IsZoomControlEnabled = false;
+            // WebView2 routes accelerator keys through its WinForms control
+            // even while a nested preview owns focus. Use the same top-level
+            // command as File > Refresh so the studio saves before navigating.
+            view.KeyDown += delegate(object _, KeyEventArgs e) {
+                if (e.KeyData != Keys.F5) return;
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                BeginInvoke(new Action(RefreshPage));
+            };
             core.DocumentTitleChanged += delegate {
                 string page = core.DocumentTitle;
                 Text = String.IsNullOrWhiteSpace(page) || page == "MStudio" ? "MStudio" : page.StartsWith("MStudio") ? page : "MStudio · " + page;
@@ -433,6 +442,18 @@ sealed class StudioWindow : Form, IUpdateWindow
     static bool LocalPage(Uri uri)
     {
         return uri.Scheme == Uri.UriSchemeHttp && (uri.IsLoopback || uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase));
+    }
+
+    async void RefreshPage()
+    {
+        if (IsDisposed || view == null || view.IsDisposed || view.CoreWebView2 == null) return;
+        try
+        {
+            await view.CoreWebView2.ExecuteScriptAsync(
+                "if (typeof window.MStudioRefreshPage === 'function') window.MStudioRefreshPage(); else location.reload();");
+        }
+        catch (InvalidOperationException e) { MStudioProgram.Log(e.Message); }
+        catch (COMException e) { MStudioProgram.Log(e.Message); }
     }
 
     static void OpenWebsite(Uri uri)

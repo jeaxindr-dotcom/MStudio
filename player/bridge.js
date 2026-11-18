@@ -48,6 +48,11 @@
     if (m.re) try { window.parent.postMessage({ coulissesPreview: 1, v: release.version, re: m.re, ok: false, error: 'not to be sent' }, parentOrigin); } catch { /* */ }   // (the page's call still ends)
   };
   const sp = () => window.StudioPlayer;
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'F5' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!e.repeat) post({key: {type: 'keydown', key: 'F5', code: 'F5'}});
+  }, true);
   const stageState = () => {
     const st = sp()?.stage; if (!st) return null;
     let list = []; try { list = st.list(); } catch { /* not mounted yet */ }
